@@ -5,10 +5,9 @@ from __future__ import annotations
 
 import pprint
 import time
-from typing import NewType
+from typing import TYPE_CHECKING, NewType
 
 import anki
-import anki.collection
 import anki.decks
 import anki.notes
 import anki.template
@@ -18,6 +17,9 @@ from anki.consts import *
 from anki.models import NotetypeDict, TemplateDict
 from anki.notes import Note
 from anki.sound import AVTag
+
+if TYPE_CHECKING:
+    import anki.collection
 
 # Cards
 ##########################################################################

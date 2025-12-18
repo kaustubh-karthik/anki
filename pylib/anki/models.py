@@ -8,11 +8,10 @@ import pprint
 import sys
 import time
 from collections.abc import Sequence
-from typing import Any, NewType, Union
+from typing import TYPE_CHECKING, Any, NewType, Union
 
 import anki
 import anki.collection
-import anki.notes
 from anki import notetypes_pb2
 from anki._legacy import DeprecatedNamesMixin, deprecated, print_deprecation_warning
 from anki.collection import OpChanges, OpChangesWithId
@@ -37,6 +36,9 @@ FieldDict = dict[str, Any]
 TemplateDict = dict[str, Union[str, int, None]]
 NotetypeId = NewType("NotetypeId", int)
 sys.modules["anki.models"].NoteType = NotetypeDict  # type: ignore
+
+if TYPE_CHECKING:
+    import anki.notes
 
 
 class ModelsDictProxy:

@@ -72,7 +72,7 @@ class ConversationTelemetryStore:
 
     def end_session(self, session_id: int, summary: dict[str, Any]) -> None:
         ended = _now_ms()
-        payload = orjson.dumps(summary)
+        payload = orjson.dumps(summary).decode("utf-8")
         self.col.db.executemany(
             "update elites_conversation_sessions set ended_ms=?, summary_json=? where id=?",
             [(ended, payload, session_id)],
@@ -92,6 +92,5 @@ class ConversationTelemetryStore:
 insert into elites_conversation_events(session_id, turn_index, event_type, ts_ms, payload_json)
 values(?, ?, ?, ?, ?)
 """,
-            [(session_id, turn_index, event_type, ts, orjson.dumps(payload))],
+            [(session_id, turn_index, event_type, ts, orjson.dumps(payload).decode("utf-8"))],
         )
-

@@ -157,6 +157,7 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 - Added pytest coverage for schema creation, snapshot extraction, planner output, and gateway rewrite behavior.
 - Enhanced the deck snapshot to include FSRS `stability`/`difficulty` via `compute_memory_state()`, and updated planner ordering to prioritize low-stability items.
 - Added a baseline Korean \"glue\" vocabulary so safe-mode token budgeting is usable without constant rewrites.
+- Added a no-UI end-to-end CLI test that exercises rewrite gating and verifies DB persistence, and enabled `ANKI_TEST_MODE` during python tests to disable fuzz and keep runs deterministic.
 
 ## Open Issues
 

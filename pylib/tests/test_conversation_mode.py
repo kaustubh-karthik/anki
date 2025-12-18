@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 
 from anki.conversation.gateway import ConversationGateway, ConversationProvider
 from anki.conversation.planner import ConversationPlanner
@@ -42,6 +43,87 @@ def test_schema_is_created() -> None:
         )
     finally:
         col.close()
+
+
+def test_cli_run_is_fully_automatable_and_writes_db(tmp_path) -> None:
+    from anki.conversation import cli
+
+    col = getEmptyCol()
+    try:
+        collection_path = col.path
+        did = col.decks.id("Korean")
+        note = col.newNote()
+        note["Front"] = "의자"
+        note["Back"] = "chair"
+        col.addNote(note)
+        for card in note.cards():
+            card.did = did
+            card.flush()
+
+        script_path = tmp_path / "script.json"
+        script_path.write_text('[{"text_ko":"응"}]', encoding="utf-8")
+
+        provider_script_path = tmp_path / "provider.json"
+        provider_script_path.write_text(
+            json.dumps(
+                [
+                    # first response violates budget -> triggers rewrite
+                    {
+                        "assistant_reply_ko": "고양이 있어요.",
+                        "follow_up_question_ko": "뭐가 있어요?",
+                        "micro_feedback": {"type": "none", "content_ko": "", "content_en": ""},
+                        "suggested_user_intent_en": None,
+                        "targets_used": [],
+                        "unexpected_tokens": [],
+                    },
+                    # second response stays in budget
+                    {
+                        "assistant_reply_ko": "의자 있어요.",
+                        "follow_up_question_ko": "뭐가 있어요?",
+                        "micro_feedback": {"type": "none", "content_ko": "", "content_en": ""},
+                        "suggested_user_intent_en": None,
+                        "targets_used": [],
+                        "unexpected_tokens": [],
+                    },
+                ],
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        # close, then invoke CLI against the collection path
+        col.close()
+
+        cli.main(
+            [
+                "run",
+                "--collection",
+                collection_path,
+                "--deck",
+                "Korean",
+                "--script",
+                str(script_path),
+                "--provider",
+                "fake",
+                "--provider-script",
+                str(provider_script_path),
+            ]
+        )
+
+        # open the same collection and assert a session+event exists
+        from anki.collection import Collection
+
+        opened = Collection(collection_path)
+        try:
+            assert opened.db.scalar("select count() from elites_conversation_sessions") == 1
+            assert opened.db.scalar("select count() from elites_conversation_events") == 1
+        finally:
+            opened.close()
+    finally:
+        try:
+            col.close()
+        except Exception:
+            pass
 
 
 def test_snapshot_extracts_lexemes_from_selected_deck() -> None:

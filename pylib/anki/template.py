@@ -31,18 +31,20 @@ from __future__ import annotations
 import os.path
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Union
+from typing import TYPE_CHECKING, Any, Union
 
 import anki
 import anki.cards
 import anki.collection
 import anki.notes
 from anki import card_rendering_pb2, hooks
-from anki.decks import DeckManager
 from anki.errors import TemplateError
 from anki.models import NotetypeDict
 from anki.sound import AVTag, SoundOrVideoTag, TTSTag
 from anki.utils import to_json_bytes
+
+if TYPE_CHECKING:
+    from anki.decks import DeckManager
 
 
 @dataclass
@@ -186,6 +188,8 @@ class TemplateRenderContext:
             fields["Tags"] = self._note.string_tags().strip()
             fields["Type"] = self._note_type["name"]
             fields["Deck"] = self._col.decks.name(self._card.current_deck_id())
+            from anki.decks import DeckManager
+
             fields["Subdeck"] = DeckManager.basename(fields["Deck"])
             if self._template:
                 fields["Card"] = self._template["name"]
