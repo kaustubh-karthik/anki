@@ -217,6 +217,26 @@ def test_snapshot_extracts_lexemes_from_selected_deck() -> None:
         col.close()
 
 
+def test_snapshot_strips_html_in_lexeme_field() -> None:
+    col = getEmptyCol()
+    try:
+        did = col.decks.id("Korean")
+        col.decks.select(DeckId(did))
+
+        note = col.newNote()
+        note["Front"] = "<b>의자</b>"
+        note["Back"] = "chair"
+        col.addNote(note)
+        for card in note.cards():
+            card.did = did
+            card.flush()
+
+        snapshot = build_deck_snapshot(col, [DeckId(did)], include_fsrs_metrics=False)
+        assert any(item.lexeme == "의자" for item in snapshot.items)
+    finally:
+        col.close()
+
+
 def test_snapshot_multi_deck_collation() -> None:
     col = getEmptyCol()
     try:

@@ -74,7 +74,7 @@ def build_deck_snapshot(
         fields = flds.split("\x1f")
         if lexeme_field_index >= len(fields):
             continue
-        raw = fields[lexeme_field_index].strip()
+        raw = strip_html(fields[lexeme_field_index]).strip()
         if not raw:
             continue
         gloss: str | None = None

@@ -185,6 +185,9 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 ### 2025-12-18 — Codex
 - Expanded built-in Korean grammar/collocation catalogs and added regression tests to ensure the planner emits the new patterns deterministically.
 
+### 2025-12-18 — Codex
+- Fixed a real-world deck snapshot bug: lexeme extraction now strips HTML in the source field (matching gloss extraction), with a regression test.
+
 ## Open Issues
 
 - [ ] Decide on default local dictionary source and licensing (offline-first, redistributable).
