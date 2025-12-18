@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from dataclasses import dataclass
 from enum import Enum
 
@@ -19,6 +20,9 @@ class ConversationSettings:
     safe_mode: bool = True
     redaction_level: RedactionLevel = RedactionLevel.minimal
     max_rewrites: int = 2
+    lexeme_field_index: int = 0
+    gloss_field_index: int | None = 1
+    snapshot_max_items: int = 5000
 
 
 CONFIG_KEY = "elites.conversation.settings"
@@ -28,11 +32,36 @@ def load_conversation_settings(col: Collection) -> ConversationSettings:
     raw = col.get_config(CONFIG_KEY, default=None)
     if not isinstance(raw, dict):
         return ConversationSettings()
-    provider = raw.get("provider", "fake")
-    model = raw.get("model", "gpt-5-nano")
-    safe_mode = raw.get("safe_mode", True)
-    redaction_level = raw.get("redaction_level", RedactionLevel.minimal.value)
-    max_rewrites = raw.get("max_rewrites", 2)
+    settings = ConversationSettings()
+    settings = replace(settings, provider=raw.get("provider", settings.provider))
+    settings = replace(settings, model=raw.get("model", settings.model))
+    settings = replace(settings, safe_mode=raw.get("safe_mode", settings.safe_mode))
+    settings = replace(
+        settings,
+        redaction_level=raw.get("redaction_level", settings.redaction_level.value),
+    )
+    settings = replace(settings, max_rewrites=raw.get("max_rewrites", settings.max_rewrites))
+    settings = replace(
+        settings,
+        lexeme_field_index=raw.get("lexeme_field_index", settings.lexeme_field_index),
+    )
+    settings = replace(
+        settings,
+        gloss_field_index=raw.get("gloss_field_index", settings.gloss_field_index),
+    )
+    settings = replace(
+        settings,
+        snapshot_max_items=raw.get("snapshot_max_items", settings.snapshot_max_items),
+    )
+
+    provider = settings.provider
+    model = settings.model
+    safe_mode = settings.safe_mode
+    redaction_level = settings.redaction_level
+    max_rewrites = settings.max_rewrites
+    lexeme_field_index = settings.lexeme_field_index
+    gloss_field_index = settings.gloss_field_index
+    snapshot_max_items = settings.snapshot_max_items
 
     if not isinstance(provider, str):
         provider = "fake"
@@ -46,6 +75,14 @@ def load_conversation_settings(col: Collection) -> ConversationSettings:
         redaction_level = RedactionLevel.minimal.value
     if not isinstance(max_rewrites, int) or max_rewrites < 0 or max_rewrites > 10:
         max_rewrites = 2
+    if not isinstance(lexeme_field_index, int) or lexeme_field_index < 0 or lexeme_field_index > 50:
+        lexeme_field_index = 0
+    if gloss_field_index is not None and (
+        not isinstance(gloss_field_index, int) or gloss_field_index < 0 or gloss_field_index > 50
+    ):
+        gloss_field_index = 1
+    if not isinstance(snapshot_max_items, int) or snapshot_max_items <= 0 or snapshot_max_items > 50000:
+        snapshot_max_items = 5000
 
     return ConversationSettings(
         provider=provider,
@@ -53,6 +90,9 @@ def load_conversation_settings(col: Collection) -> ConversationSettings:
         safe_mode=safe_mode,
         redaction_level=RedactionLevel(redaction_level),
         max_rewrites=max_rewrites,
+        lexeme_field_index=lexeme_field_index,
+        gloss_field_index=gloss_field_index,
+        snapshot_max_items=snapshot_max_items,
     )
 
 
@@ -65,6 +105,9 @@ def save_conversation_settings(col: Collection, settings: ConversationSettings) 
             "safe_mode": settings.safe_mode,
             "redaction_level": settings.redaction_level.value,
             "max_rewrites": settings.max_rewrites,
+            "lexeme_field_index": settings.lexeme_field_index,
+            "gloss_field_index": settings.gloss_field_index,
+            "snapshot_max_items": settings.snapshot_max_items,
         },
         undoable=False,
     )

@@ -206,7 +206,14 @@ class ConversationPlanner:
         missed: list[str] = []
         for target in constraints.must_target:
             item_id = str(target.id)
-            used = any(sf in user_tokens or sf in assistant_tokens for sf in target.surface_forms)
+            if target.type == "collocation":
+                used = all(
+                    sf in user_tokens or sf in assistant_tokens for sf in target.surface_forms
+                )
+            else:
+                used = any(
+                    sf in user_tokens or sf in assistant_tokens for sf in target.surface_forms
+                )
             if not used:
                 # recycle next turn to fight avoidance
                 state.scheduled_reuse[item_id] = min(
@@ -228,12 +235,39 @@ def _candidate_score(today: int | None, item: object, mastery: dict[str, int]) -
     rustiness = _rustiness(stability)
     dont_know = mastery.get("dont_know", 0)
     practice_again = mastery.get("practice_again", 0)
+    missed_target = mastery.get("missed_target", 0)
+    lookup_count = mastery.get("lookup_count", 0)
+    lookup_ms_total = mastery.get("lookup_ms_total", 0)
     if not isinstance(dont_know, int):
         dont_know = 0
     if not isinstance(practice_again, int):
         practice_again = 0
+    if not isinstance(missed_target, int):
+        missed_target = 0
+    if not isinstance(lookup_count, int):
+        lookup_count = 0
+    if not isinstance(lookup_ms_total, int):
+        lookup_ms_total = 0
     overdue_score = _overdue_score(today, item)
-    return rustiness + overdue_score + dont_know * 0.5 + practice_again * 0.25
+
+    difficulty_score = 0.0
+    difficulty = getattr(item, "difficulty", None)
+    if isinstance(difficulty, (int, float)):
+        # FSRS difficulty is higher => harder; keep the weight small to avoid overpowering stability/overdue.
+        difficulty_score = max(0.0, min(1.0, float(difficulty) / 10.0)) * 0.1
+
+    avg_lookup_ms = (lookup_ms_total / lookup_count) if lookup_count > 0 else 0.0
+    lookup_score = min(2.0, float(lookup_count)) * 0.05 + min(2.0, avg_lookup_ms / 1500.0) * 0.05
+
+    return (
+        rustiness
+        + overdue_score
+        + dont_know * 0.5
+        + practice_again * 0.25
+        + missed_target * 0.2
+        + difficulty_score
+        + lookup_score
+    )
 
 
 def _overdue_score(today: int | None, item: object) -> float:

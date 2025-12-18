@@ -175,6 +175,13 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 - Refactored event logging + mastery updates into `pylib/anki/conversation/events.py` and moved the shared system role prompt to `pylib/anki/conversation/prompts.py`.
 - Re-ran backend pytest suite (no-human-input): `112 passed`.
 
+### 2025-12-18 — Codex
+- Tightened collocation accounting: a collocation target now counts as “used” only if all surface-form tokens appear, and missed targets are now persisted for `lexeme:*`, `gram:*`, `colloc:*`, and `repair:*`.
+- Added snapshot builder configurability to persisted settings + CLI (`lexeme_field_index`, `gloss_field_index`, `snapshot_max_items`) and expanded tests accordingly.
+
+### 2025-12-18 — Codex
+- Expanded planner scoring to incorporate additional mastery signals (`missed_target`, `lookup_*`) and FSRS `difficulty` (small weight), and added regression tests for the new prioritization behavior.
+
 ## Open Issues
 
 - [ ] Decide on default local dictionary source and licensing (offline-first, redistributable).

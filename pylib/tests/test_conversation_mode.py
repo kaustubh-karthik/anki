@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import json
 
 from anki.conversation.gateway import ConversationGateway, ConversationProvider
+from anki.conversation.events import apply_missed_targets
 from anki.conversation.planner import ConversationPlanner
 from anki.conversation.snapshot import build_deck_snapshot
 from anki.conversation.telemetry import ConversationTelemetryStore
@@ -465,11 +466,21 @@ def test_settings_persist_roundtrip() -> None:
         assert s.model
         save_conversation_settings(
             col,
-            ConversationSettings(provider="openai", model="gpt-5-nano", safe_mode=False),
+            ConversationSettings(
+                provider="openai",
+                model="gpt-5-nano",
+                safe_mode=False,
+                lexeme_field_index=2,
+                gloss_field_index=None,
+                snapshot_max_items=123,
+            ),
         )
         s2 = load_conversation_settings(col)
         assert s2.provider == "openai"
         assert s2.safe_mode is False
+        assert s2.lexeme_field_index == 2
+        assert s2.gloss_field_index is None
+        assert s2.snapshot_max_items == 123
     finally:
         col.close()
 
@@ -611,6 +622,44 @@ def test_planner_prioritizes_mastery_weak_items() -> None:
             kind="lexeme",
             value="책상",
             deltas={"dont_know": 3},
+        )
+        mastery = store.get_mastery_bulk(["lexeme:의자", "lexeme:책상"])
+
+        _, constraints, _ = planner.plan_turn(
+            state,
+            UserInput(text_ko="응"),
+            must_target_count=1,
+            mastery=mastery,
+        )
+        assert constraints.must_target[0].surface_forms[0] == "책상"
+    finally:
+        col.close()
+
+
+def test_planner_prioritizes_lookup_heavy_items() -> None:
+    col = getEmptyCol()
+    try:
+        did = col.decks.id("Korean")
+        col.decks.select(DeckId(did))
+        for lexeme in ["의자", "책상"]:
+            note = col.newNote()
+            note["Front"] = lexeme
+            note["Back"] = "x"
+            col.addNote(note)
+            for card in note.cards():
+                card.did = did
+                card.flush()
+
+        snapshot = build_deck_snapshot(col, [DeckId(did)], include_fsrs_metrics=False)
+        planner = ConversationPlanner(snapshot)
+        state = planner.initial_state(summary="x")
+
+        store = ConversationTelemetryStore(col)
+        store.bump_item(
+            item_id="lexeme:책상",
+            kind="lexeme",
+            value="책상",
+            deltas={"lookup_count": 2, "lookup_ms_total": 4000},
         )
         mastery = store.get_mastery_bulk(["lexeme:의자", "lexeme:책상"])
 
@@ -806,5 +855,87 @@ def test_planner_can_emit_collocation_targets() -> None:
             mastery={},
         )
         assert any(t.type == "collocation" for t in constraints.must_target)
+    finally:
+        col.close()
+
+
+def test_collocation_requires_all_tokens_to_count_used() -> None:
+    col = getEmptyCol()
+    try:
+        did = col.decks.id("Korean")
+        col.decks.select(DeckId(did))
+        note = col.newNote()
+        note["Front"] = "사이"
+        note["Back"] = "between"
+        col.addNote(note)
+        for card in note.cards():
+            card.did = did
+            card.flush()
+
+        snapshot = build_deck_snapshot(col, [DeckId(did)], include_fsrs_metrics=False)
+        planner = ConversationPlanner(snapshot)
+
+        state1 = planner.initial_state(summary="x")
+        _, c1, _ = planner.plan_turn(state1, UserInput(text_ko="응"), must_target_count=2, mastery={})
+        colloc1 = next(t for t in c1.must_target if t.type == "collocation")
+        missed1 = planner.observe_turn(
+            state1,
+            constraints=c1,
+            user_input=UserInput(text_ko="응"),
+            assistant_reply_ko=f"{colloc1.surface_forms[0]}",
+            follow_up_question_ko="",
+        )
+        assert str(colloc1.id) in missed1
+
+        state2 = planner.initial_state(summary="x")
+        _, c2, _ = planner.plan_turn(state2, UserInput(text_ko="응"), must_target_count=2, mastery={})
+        colloc2 = next(t for t in c2.must_target if t.type == "collocation")
+        both = " ".join(colloc2.surface_forms)
+        missed2 = planner.observe_turn(
+            state2,
+            constraints=c2,
+            user_input=UserInput(text_ko="응"),
+            assistant_reply_ko=both,
+            follow_up_question_ko="",
+        )
+        assert str(colloc2.id) not in missed2
+    finally:
+        col.close()
+
+
+def test_apply_missed_targets_records_non_lexeme_items() -> None:
+    col = getEmptyCol()
+    try:
+        store = ConversationTelemetryStore(col)
+        sid = store.start_session([1])
+        cache = store.load_mastery_cache([])
+        apply_missed_targets(
+            telemetry=store,
+            mastery_cache=cache,
+            missed_item_ids=(
+                "lexeme:의자",
+                "gram:n1_n2_사이에_있다",
+                "colloc:사이에_있어요",
+                "repair:clarify",
+            ),
+        )
+
+        for item_id, kind, value in (
+            ("lexeme:의자", "lexeme", "의자"),
+            ("gram:n1_n2_사이에_있다", "grammar", "gram:n1_n2_사이에_있다"),
+            ("colloc:사이에_있어요", "collocation", "colloc:사이에_있어요"),
+            ("repair:clarify", "repair", "clarify"),
+        ):
+            row = col.db.first(
+                "select kind, value, mastery_json from elites_conversation_items where item_id=?",
+                item_id,
+            )
+            assert row is not None
+            got_kind, got_value, mastery_json = row
+            assert got_kind == kind
+            assert got_value == value
+            mastery = json.loads(mastery_json)
+            assert mastery["missed_target"] == 1
+
     finally:
         col.close()

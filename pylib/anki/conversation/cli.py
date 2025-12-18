@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from dataclasses import dataclass
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -110,6 +111,10 @@ def main(argv: list[str] | None = None) -> None:
     run.add_argument("--model", default="gpt-5-nano")
     run.add_argument("--redaction", choices=[e.value for e in RedactionLevel], default="minimal")
     run.add_argument("--safe-mode", action=argparse.BooleanOptionalAction, default=True)
+    run.add_argument("--lexeme-field-index", type=int, default=0)
+    run.add_argument("--gloss-field-index", type=int, default=1)
+    run.add_argument("--no-gloss-field", action="store_true")
+    run.add_argument("--snapshot-max-items", type=int, default=5000)
     run.add_argument(
         "--provider-script",
         help="JSON file with scripted assistant responses (fake provider only)",
@@ -118,6 +123,10 @@ def main(argv: list[str] | None = None) -> None:
     snap = sub.add_parser("snapshot", help="Print a deterministic deck snapshot as JSON")
     snap.add_argument("--collection", required=True)
     snap.add_argument("--deck", action="append", required=True)
+    snap.add_argument("--lexeme-field-index", type=int, default=0)
+    snap.add_argument("--gloss-field-index", type=int, default=1)
+    snap.add_argument("--no-gloss-field", action="store_true")
+    snap.add_argument("--snapshot-max-items", type=int, default=5000)
 
     export = sub.add_parser("export-telemetry", help="Export stored conversation telemetry as JSON")
     export.add_argument("--collection", required=True)
@@ -145,6 +154,10 @@ def main(argv: list[str] | None = None) -> None:
     rebuild = sub.add_parser("rebuild-glossary", help="Rebuild glossary cache from selected deck(s)")
     rebuild.add_argument("--collection", required=True)
     rebuild.add_argument("--deck", action="append", required=True)
+    rebuild.add_argument("--lexeme-field-index", type=int, default=0)
+    rebuild.add_argument("--gloss-field-index", type=int, default=1)
+    rebuild.add_argument("--no-gloss-field", action="store_true")
+    rebuild.add_argument("--snapshot-max-items", type=int, default=5000)
 
     getset = sub.add_parser("settings", help="Get/set persisted conversation settings")
     getset.add_argument("--collection", required=True)
@@ -153,6 +166,10 @@ def main(argv: list[str] | None = None) -> None:
     getset.add_argument("--set-safe-mode", choices=["true", "false"])
     getset.add_argument("--set-redaction", choices=[e.value for e in RedactionLevel])
     getset.add_argument("--set-max-rewrites", type=int)
+    getset.add_argument("--set-lexeme-field-index", type=int)
+    getset.add_argument("--set-gloss-field-index", type=int)
+    getset.add_argument("--set-no-gloss-field", action="store_true")
+    getset.add_argument("--set-snapshot-max-items", type=int)
 
     args = parser.parse_args(argv)
 
@@ -184,7 +201,13 @@ def _cmd_run(args: argparse.Namespace) -> None:
                 raise SystemExit(f"deck not found: {deck_name}")
             deck_ids.append(DeckId(did))
 
-        snapshot = build_deck_snapshot(col, deck_ids)
+        snapshot = build_deck_snapshot(
+            col,
+            deck_ids,
+            lexeme_field_index=int(args.lexeme_field_index),
+            gloss_field_index=None if args.no_gloss_field else int(args.gloss_field_index),
+            max_items=int(args.snapshot_max_items),
+        )
         planner = ConversationPlanner(snapshot)
         telemetry = ConversationTelemetryStore(col)
         session_id = telemetry.start_session(list(snapshot.deck_ids))
@@ -211,6 +234,9 @@ def _cmd_run(args: argparse.Namespace) -> None:
             model=args.model,
             safe_mode=bool(args.safe_mode),
             redaction_level=RedactionLevel(args.redaction),
+            lexeme_field_index=int(args.lexeme_field_index),
+            gloss_field_index=None if args.no_gloss_field else int(args.gloss_field_index),
+            snapshot_max_items=int(args.snapshot_max_items),
         )
         gateway = ConversationGateway(provider=provider, max_rewrites=settings.max_rewrites)
 
@@ -318,7 +344,13 @@ def _cmd_snapshot(args: argparse.Namespace) -> None:
             if not did:
                 raise SystemExit(f"deck not found: {deck_name}")
             deck_ids.append(DeckId(did))
-        snapshot = build_deck_snapshot(col, deck_ids)
+        snapshot = build_deck_snapshot(
+            col,
+            deck_ids,
+            lexeme_field_index=int(args.lexeme_field_index),
+            gloss_field_index=None if args.no_gloss_field else int(args.gloss_field_index),
+            max_items=int(args.snapshot_max_items),
+        )
         print(
             orjson.dumps(
                 {
@@ -462,7 +494,13 @@ def _cmd_rebuild_glossary(args: argparse.Namespace) -> None:
             if not did:
                 raise SystemExit(f"deck not found: {deck_name}")
             deck_ids.append(DeckId(did))
-        snapshot = build_deck_snapshot(col, deck_ids)
+        snapshot = build_deck_snapshot(
+            col,
+            deck_ids,
+            lexeme_field_index=int(args.lexeme_field_index),
+            gloss_field_index=None if args.no_gloss_field else int(args.gloss_field_index),
+            max_items=int(args.snapshot_max_items),
+        )
         count = rebuild_glossary_from_snapshot(col, snapshot)
         print(orjson.dumps({"updated": count}).decode("utf-8"))
     finally:
@@ -475,49 +513,31 @@ def _cmd_settings(args: argparse.Namespace) -> None:
         settings = load_conversation_settings(col)
         changed = False
         if args.set_provider is not None:
-            settings = ConversationSettings(
-                provider=args.set_provider,
-                model=settings.model,
-                safe_mode=settings.safe_mode,
-                redaction_level=settings.redaction_level,
-                max_rewrites=settings.max_rewrites,
-            )
+            settings = replace(settings, provider=args.set_provider)
             changed = True
         if args.set_model is not None:
-            settings = ConversationSettings(
-                provider=settings.provider,
-                model=args.set_model,
-                safe_mode=settings.safe_mode,
-                redaction_level=settings.redaction_level,
-                max_rewrites=settings.max_rewrites,
-            )
+            settings = replace(settings, model=args.set_model)
             changed = True
         if args.set_safe_mode is not None:
-            settings = ConversationSettings(
-                provider=settings.provider,
-                model=settings.model,
-                safe_mode=args.set_safe_mode == "true",
-                redaction_level=settings.redaction_level,
-                max_rewrites=settings.max_rewrites,
-            )
+            settings = replace(settings, safe_mode=args.set_safe_mode == "true")
             changed = True
         if args.set_redaction is not None:
-            settings = ConversationSettings(
-                provider=settings.provider,
-                model=settings.model,
-                safe_mode=settings.safe_mode,
-                redaction_level=RedactionLevel(args.set_redaction),
-                max_rewrites=settings.max_rewrites,
-            )
+            settings = replace(settings, redaction_level=RedactionLevel(args.set_redaction))
             changed = True
         if args.set_max_rewrites is not None:
-            settings = ConversationSettings(
-                provider=settings.provider,
-                model=settings.model,
-                safe_mode=settings.safe_mode,
-                redaction_level=settings.redaction_level,
-                max_rewrites=args.set_max_rewrites,
-            )
+            settings = replace(settings, max_rewrites=args.set_max_rewrites)
+            changed = True
+        if args.set_lexeme_field_index is not None:
+            settings = replace(settings, lexeme_field_index=args.set_lexeme_field_index)
+            changed = True
+        if args.set_no_gloss_field:
+            settings = replace(settings, gloss_field_index=None)
+            changed = True
+        if args.set_gloss_field_index is not None:
+            settings = replace(settings, gloss_field_index=args.set_gloss_field_index)
+            changed = True
+        if args.set_snapshot_max_items is not None:
+            settings = replace(settings, snapshot_max_items=args.set_snapshot_max_items)
             changed = True
 
         if changed:
@@ -531,6 +551,9 @@ def _cmd_settings(args: argparse.Namespace) -> None:
                     "safe_mode": settings.safe_mode,
                     "redaction_level": settings.redaction_level.value,
                     "max_rewrites": settings.max_rewrites,
+                    "lexeme_field_index": settings.lexeme_field_index,
+                    "gloss_field_index": settings.gloss_field_index,
+                    "snapshot_max_items": settings.snapshot_max_items,
                 }
             ).decode("utf-8")
         )

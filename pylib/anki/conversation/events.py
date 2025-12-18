@@ -140,14 +140,26 @@ def apply_missed_targets(
     missed_item_ids: Iterable[str],
 ) -> None:
     for item_id in missed_item_ids:
-        if not item_id.startswith("lexeme:"):
+        kind: str | None = None
+        value: str | None = None
+        if item_id.startswith("lexeme:"):
+            kind = "lexeme"
+            value = item_id.removeprefix("lexeme:")
+        elif item_id.startswith("gram:"):
+            kind = "grammar"
+            value = item_id
+        elif item_id.startswith("colloc:"):
+            kind = "collocation"
+            value = item_id
+        elif item_id.startswith("repair:"):
+            kind = "repair"
+            value = item_id.removeprefix("repair:")
+        if kind is None or value is None or not value:
             continue
-        token = item_id.removeprefix("lexeme:")
         telemetry.bump_item_cached(
             mastery_cache,
             item_id=item_id,
-            kind="lexeme",
-            value=token,
+            kind=kind,
+            value=value,
             deltas={"missed_target": 1},
         )
-
