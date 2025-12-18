@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .collocations import select_collocation_targets
+from .grammar import select_grammar_patterns
 from .snapshot import DeckSnapshot
 from .types import (
     ConversationState,
@@ -13,8 +15,6 @@ from .types import (
     UserInput,
 )
 from .validation import tokenize_for_validation
-from .collocations import select_collocation_targets
-from .grammar import select_grammar_patterns
 
 BASE_ALLOWED_SUPPORT: tuple[str, ...] = (
     # Minimal Korean glue vocabulary to make safe-mode usable.
@@ -90,7 +90,9 @@ class ConversationPlanner:
     def __init__(self, snapshot: DeckSnapshot) -> None:
         self._snapshot = snapshot
 
-    def initial_state(self, *, summary: str, topic_id: str | None = None) -> PlannerState:
+    def initial_state(
+        self, *, summary: str, topic_id: str | None = None
+    ) -> PlannerState:
         if topic_id:
             summary = f"{summary} (topic={topic_id})"
         return PlannerState(conversation_summary=summary)
@@ -110,7 +112,11 @@ class ConversationPlanner:
         candidates = list(self._snapshot.items)
         candidates.sort(
             key=lambda i: (
-                -_candidate_score(self._snapshot.today, i, mastery.get(str(i.item_id), {}) if mastery else {}),
+                -_candidate_score(
+                    self._snapshot.today,
+                    i,
+                    mastery.get(str(i.item_id), {}) if mastery else {},
+                ),
                 i.lexeme,
             )
         )
@@ -160,8 +166,12 @@ class ConversationPlanner:
             used_lexemes.add(lexeme)
 
         # 3) optionally add collocation targets if there is room
-        lexical_targets = tuple(t.surface_forms[0] for t in must_targets if t.type == "vocab")
-        for colloc in select_collocation_targets(lexical_targets=lexical_targets, max_targets=1):
+        lexical_targets = tuple(
+            t.surface_forms[0] for t in must_targets if t.type == "vocab"
+        )
+        for colloc in select_collocation_targets(
+            lexical_targets=lexical_targets, max_targets=1
+        ):
             if len(must_targets) >= must_target_count:
                 break
             must_targets.append(colloc)
@@ -179,7 +189,9 @@ class ConversationPlanner:
             allowed_grammar=select_grammar_patterns(
                 must_targets=tuple(sf for t in must_targets for sf in t.surface_forms)
             ),
-            forbidden=ForbiddenConstraints(introduce_new_vocab=True, sentence_length_max=20),
+            forbidden=ForbiddenConstraints(
+                introduce_new_vocab=True, sentence_length_max=20
+            ),
         )
 
         instructions = GenerationInstructions(
@@ -221,11 +233,13 @@ class ConversationPlanner:
             item_id = str(target.id)
             if target.type == "collocation":
                 used = all(
-                    sf in user_tokens or sf in assistant_tokens for sf in target.surface_forms
+                    sf in user_tokens or sf in assistant_tokens
+                    for sf in target.surface_forms
                 )
             else:
                 used = any(
-                    sf in user_tokens or sf in assistant_tokens for sf in target.surface_forms
+                    sf in user_tokens or sf in assistant_tokens
+                    for sf in target.surface_forms
                 )
             if not used:
                 # recycle next turn to fight avoidance
@@ -270,7 +284,9 @@ def _candidate_score(today: int | None, item: object, mastery: dict[str, int]) -
         difficulty_score = max(0.0, min(1.0, float(difficulty) / 10.0)) * 0.1
 
     avg_lookup_ms = (lookup_ms_total / lookup_count) if lookup_count > 0 else 0.0
-    lookup_score = min(2.0, float(lookup_count)) * 0.05 + min(2.0, avg_lookup_ms / 1500.0) * 0.05
+    lookup_score = (
+        min(2.0, float(lookup_count)) * 0.05 + min(2.0, avg_lookup_ms / 1500.0) * 0.05
+    )
 
     return (
         rustiness

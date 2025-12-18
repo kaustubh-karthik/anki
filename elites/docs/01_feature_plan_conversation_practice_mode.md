@@ -1,9 +1,11 @@
 # Feature: Conversation Practice Mode
 
 ## Purpose
+
 Deliver a built-in conversational practice surface (Korean-first) that leverages Anki's FSRS data, deterministic planning, and constrained LLM generation to keep learners in-flow while reinforcing weak vocabulary and grammar pulled from their decks.
 
 ## Scope
+
 - Included:
   - Deck selection UI that builds a deterministic "deck snapshot" for conversation planning.
   - Client-side planner that surfaces `must_target`, `allowed_support`, and grammar constraints each turn.
@@ -16,12 +18,14 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
   - Automatic speech recognition or TTS.
 
 ## Constraints
+
 - Performance: Token popups must respond <50 ms via local dictionaries/cache; chat UI cannot block Qt event loop; planner computations <10 ms per turn on typical decks.
 - Compatibility: Works with existing deck schemas without migrating user notes; planner/metadata stored in new tables or JSON fields namespaced to avoid conflicts.
 - Security: Only the structured request payload is sent to LLM; redaction for personal data; offline fallback (local-only) must be possible.
 - Known limitations: Initial rollout supports Korean only, text-only interaction, and desktop Qt builds.
 
 ## Related Files / Modules
+
 - `qt/aqt/conversation/` (new) — Qt controllers, dock/window wiring, telemetry handling.
 - `ts/src/conversation/` — React chat UI rendered via WebView.
 - `pylib/anki/conversation/` — Planner orchestration, metadata persistence, FSRS bridge.
@@ -31,6 +35,7 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 ## Architecture Overview
 
 ### Components
+
 - **Deck Snapshot Builder:** Compiles FSRS, card fields, tags, lexeme/grammar mappings for selected deck(s).
 - **Deterministic Planner:** Pure-Python module that consumes snapshot + telemetry to emit per-turn constraints and behavior flags.
 - **Conversation UI:** React widget with tokenized transcript, hover gloss, click/double-tap telemetry, optional scaffolding panes.
@@ -38,6 +43,7 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 - **Telemetry Store:** Persists per-lexeme mastery, per-session summaries, and event logs for analysis/FSRS feedback.
 
 ### Data Flow
+
 1. User selects deck(s); Deck Snapshot Builder queries `Collection` to create a cached snapshot with lexeme+grammar metadata.
 2. Deterministic Planner initializes session state, selects `must_target`/`allowed_support`, and emits initial instructions.
 3. UI sends user turn telemetry + planner payload to LLM Gateway; gateway calls LLM with strict JSON prompt.
@@ -46,113 +52,132 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 6. Session wrap-up summarises progress, optional Anki card suggestions are generated, and metadata persisted.
 
 ### External Dependencies
+
 - **LLM Provider** (OpenAI, Anthropic, etc.) via provider interface for Korean generation.
 - **Local dictionary** (e.g., CC-CEDICT derivative / custom Korean lexicon) packaged or user-supplied for hover gloss.
 
 ## Implementation Plan
 
 ### Step 1: Establish documentation + data contracts
+
 **Goal:** Create schemas, JSON contracts, and module scaffolding docs to align engineering teams.
 **Files Touched:**
+
 - `elites/docs/01_feature_plan_conversation_practice_mode.md`
 - `docs/` (developer-facing specs)
-**Details:**
+  **Details:**
 - Finalize JSON request/response shapes, telemetry event schema, and metadata tables.
 - Document enforcement rules (unexpected tokens rewrite pipeline, privacy guarantees).
 - Output developer-ready spec consumed by future steps.
-**Status:** ✅ Completed
+  **Status:** ✅ Completed
 
 ### Step 2: Deck Snapshot Builder prototype
+
 **Goal:** Query selected deck(s) and materialize a deterministic snapshot with FSRS + lexical metadata.
 **Files Touched:**
+
 - `pylib/anki/conversation/snapshot.py`
 - `pylib/tests/test_conversation_mode.py`
-**Details:**
+  **Details:**
 - Reuse `Collection` APIs to gather cards/notes/tags.
 - Map note fields to lexemes (configurable field mapping) and attach FSRS stats.
 - Cache snapshot per session; expose as pure data for planner.
-**Status:** ✅ Completed
+  **Status:** ✅ Completed
 
 ### Step 3: Planner core module
+
 **Goal:** Build deterministic planner that consumes snapshot + telemetry to emit turn-level constraints.
 **Files Touched:**
+
 - `pylib/anki/conversation/planner.py`
 - `pylib/tests/test_conversation_mode.py`
-**Details:**
+  **Details:**
 - Implement scoring that balances FSRS stability, recency, and conversation mastery signals.
 - Emit `must_target`, `allowed_support`, `allowed_grammar`, and forbidden flags.
 - Support micro-spacing logic (ensure reappearance inside session) and avoidance tracking.
-**Status:** ✅ Completed
+  **Status:** ✅ Completed
 
 ### Step 4: Telemetry store + mastery metrics
+
 **Goal:** Persist per-lexeme/grammar telemetry and per-session summaries without altering user notes.
 **Files Touched:**
+
 - `pylib/anki/conversation/telemetry.py`
 - `pylib/tests/test_conversation_mode.py`
-**Details:**
+  **Details:**
 - Add namespaced tables (e.g., `conversation_events`, `conversation_mastery`).
 - Track hover vs. click vs. double-tap vs. confidence signals; avoid counting hover-only curiosity.
 - Provide aggregation helpers for planner and end-of-session wrap.
-**Status:** ✅ Completed
+  **Status:** ✅ Completed
 
 ### Step 5: LLM gateway + provider abstraction
+
 **Goal:** Enforce JSON contract, abstract LLM vendors, and provide rewrite loop for unexpected tokens.
 **Files Touched:**
+
 - `pylib/anki/conversation/gateway.py`
 - `pylib/anki/conversation/openai.py`
 - `pylib/tests/test_conversation_mode.py`
-**Details:**
+  **Details:**
 - Compose prompt using system role + planner payload + conversation summary.
 - Validate responses against JSON schema; if `unexpected_tokens` non-empty, auto-request rewrite or annotate.
 - Provide configurable provider interface (OpenAI/Anthropic/local) with rate limiting + logging.
-**Status:** ✅ Completed
+  **Status:** ✅ Completed
 
 ### Step 6: Desktop UI scaffold (Svelte + Qt)
+
 **Goal:** Build flow-mode chat UI with token interactions rendered inside Qt WebEngine.
 **Files Touched:**
+
 - `qt/aqt/conversation.py`
 - `ts/routes/conversation/+page.svelte`
-**Details:**
+  **Details:**
 - Implement hover (gloss), click (don't know), double-tap (practice later) interactions.
 - Add progressive disclosure controls (Hint, Explain, Translate, Plan Reply scaffolding panel).
 - Hook telemetry events to Qt bridge and maintain latency budget.
-**Status:** 🟨 In progress
+  **Status:** 🟨 In progress
 
 ### Step 7: Session lifecycle + wrap-up
+
 **Goal:** Manage session start/end, deck selection UI, and wrap-up summary with suggested cards.
 **Files Touched:**
+
 - `pylib/anki/conversation/wrap.py`
 - `pylib/anki/conversation/suggest.py`
 - `pylib/anki/conversation/cli.py`
 - `pylib/tests/test_conversation_mode.py`
-**Details:**
+  **Details:**
 - Deck picker that builds snapshot; session controller that sequences planner/gateway/UI loop.
 - End session summary (3 strengths, 2 reinforcements, 1 suggested card) plus optional "Add to deck" flow.
 - Persist session summary + integrate with FSRS tagging (without auto-editing cards unless user confirms).
-**Status:** 🟨 In progress
+  **Status:** 🟨 In progress
 
 ### Step 8: Privacy, settings, and telemetry exports
+
 **Goal:** Provide settings UI and guardrails for data sharing, offline mode, and logging.
 **Files Touched:**
+
 - `pylib/anki/conversation/settings.py`
 - `pylib/anki/conversation/redaction.py`
 - `pylib/anki/conversation/export.py`
 - `pylib/anki/conversation/cli.py`
 - `pylib/tests/test_conversation_mode.py`
-**Details:**
+  **Details:**
 - Let users choose LLM provider, API keys, redaction levels, offline dictionary packs.
 - Document what data leaves device; support "local-only" warning/fallback.
 - Add export tooling for telemetry (for debugging) respecting privacy toggles.
-**Status:** 🟨 In progress
+  **Status:** 🟨 In progress
 
 ## Progress Log
 
 ### 2025-02-14 — Codex
+
 - Created initial feature plan document and documentation scaffolding under `elites/docs`.
 - Marked Step 1 as in progress while the rest remain unstarted.
 - Highlighted required modules and integration points across Qt, TS, and Python layers.
 
 ### 2025-12-18 — Codex
+
 - Implemented backend-only MVP modules: deck snapshot, deterministic planner, telemetry tables/store, and LLM gateway with safe-mode rewrite gate.
 - Added a CLI runner for fully automated text-only sessions and a fake provider for offline execution.
 - Added pytest coverage for schema creation, snapshot extraction, planner output, and gateway rewrite behavior.
@@ -172,20 +197,25 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 - Added deterministic topic IDs (backend) and threaded optional `topic_id` through CLI/Qt session start into planner state, keeping topic control client-side.
 
 ### 2025-12-18 — Codex
+
 - Refactored event logging + mastery updates into `pylib/anki/conversation/events.py` and moved the shared system role prompt to `pylib/anki/conversation/prompts.py`.
 - Re-ran backend pytest suite (no-human-input): `112 passed`.
 
 ### 2025-12-18 — Codex
+
 - Tightened collocation accounting: a collocation target now counts as “used” only if all surface-form tokens appear, and missed targets are now persisted for `lexeme:*`, `gram:*`, `colloc:*`, and `repair:*`.
 - Added snapshot builder configurability to persisted settings + CLI (`lexeme_field_index`, `gloss_field_index`, `snapshot_max_items`) and expanded tests accordingly.
 
 ### 2025-12-18 — Codex
+
 - Expanded planner scoring to incorporate additional mastery signals (`missed_target`, `lookup_*`) and FSRS `difficulty` (small weight), and added regression tests for the new prioritization behavior.
 
 ### 2025-12-18 — Codex
+
 - Expanded built-in Korean grammar/collocation catalogs and added regression tests to ensure the planner emits the new patterns deterministically.
 
 ### 2025-12-18 — Codex
+
 - Fixed a real-world deck snapshot bug: lexeme extraction now strips HTML in the source field (matching gloss extraction), with a regression test.
 
 ## Open Issues

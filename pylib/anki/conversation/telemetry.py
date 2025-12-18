@@ -192,5 +192,13 @@ on conflict(item_id) do update set
 insert into elites_conversation_events(session_id, turn_index, event_type, ts_ms, payload_json)
 values(?, ?, ?, ?, ?)
 """,
-            [(session_id, turn_index, event_type, ts, orjson.dumps(payload).decode("utf-8"))],
+            [
+                (
+                    session_id,
+                    turn_index,
+                    event_type,
+                    ts,
+                    orjson.dumps(payload).decode("utf-8"),
+                )
+            ],
         )

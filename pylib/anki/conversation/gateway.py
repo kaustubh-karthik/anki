@@ -4,10 +4,10 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
+from .contract import check_response_against_request
 from .openai import OpenAIResponsesJsonClient
 from .types import ConversationRequest, ConversationResponse
 from .validation import validate_tokens
-from .contract import check_response_against_request
 
 
 class ConversationProvider(ABC):
@@ -23,7 +23,9 @@ class OpenAIConversationProvider(ConversationProvider):
 
     def generate(self, *, request: ConversationRequest) -> dict[str, Any]:
         client = OpenAIResponsesJsonClient(api_key=self.api_key, model=self.model)
-        return client.request_json(system_role=request.system_role, user_json=request.to_json_dict())
+        return client.request_json(
+            system_role=request.system_role, user_json=request.to_json_dict()
+        )
 
 
 @dataclass(slots=True)
@@ -66,11 +68,15 @@ class ConversationGateway:
                     )
                     continue
 
-            violation = check_response_against_request(request=request, response=response)
+            violation = check_response_against_request(
+                request=request, response=response
+            )
             if violation is not None:
                 if attempt >= self.max_rewrites:
                     raise ValueError(f"contract violation: {violation.reason}")
-                request = _rewrite_request(request, reason=f"contract:{violation.reason}")
+                request = _rewrite_request(
+                    request, reason=f"contract:{violation.reason}"
+                )
                 continue
 
             return response
@@ -79,7 +85,9 @@ class ConversationGateway:
         raise last_error
 
 
-def _rewrite_request(request: ConversationRequest, *, reason: str) -> ConversationRequest:
+def _rewrite_request(
+    request: ConversationRequest, *, reason: str
+) -> ConversationRequest:
     system_role = (
         request.system_role
         + "\n\n"

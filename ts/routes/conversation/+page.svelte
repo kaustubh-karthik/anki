@@ -104,13 +104,16 @@
         if (!intent) {
             return;
         }
-        bridgeCommand(buildConversationCommand("plan_reply", { intent_en: intent }), (resp: any) => {
-            if (!resp?.ok) {
-                error = resp?.error ?? "plan-reply failed.";
-                return;
-            }
-            replyOptions = resp.plan?.options_ko ?? [];
-        });
+        bridgeCommand(
+            buildConversationCommand("plan_reply", { intent_en: intent }),
+            (resp: any) => {
+                if (!resp?.ok) {
+                    error = resp?.error ?? "plan-reply failed.";
+                    return;
+                }
+                replyOptions = resp.plan?.options_ko ?? [];
+            },
+        );
     }
 
     function applySuggestions(): void {
@@ -135,10 +138,10 @@
     {/if}
 
     <div class="row">
-        <label>Decks (comma-separated)</label>
-        <input bind:value={decksText} />
-        <label>Topic</label>
-        <input bind:value={topicId} />
+        <label for="decks">Decks (comma-separated)</label>
+        <input id="decks" bind:value={decksText} />
+        <label for="topic">Topic</label>
+        <input id="topic" bind:value={topicId} />
         <button on:click={start}>Start</button>
     </div>
 
@@ -146,8 +149,10 @@
         {#each transcript as line}
             <div class={`msg ${line.role}`}>
                 {#each line.text.split(" ") as tok}
-                    <span
+                    <button
+                        type="button"
                         class="tok"
+                        aria-label={`token ${tok}`}
                         on:mouseenter={() => gloss(tok)}
                         on:click={() => logEvent("dont_know", tok)}
                         on:dblclick={() => logEvent("practice_again", tok)}
@@ -155,9 +160,10 @@
                             e.preventDefault();
                             logEvent("mark_confusing", tok);
                         }}
-                        >{tok}</span
                     >
-                    <span> </span>
+                        {tok}
+                    </button>
+                    <span></span>
                 {/each}
             </div>
         {/each}
@@ -190,8 +196,12 @@
     </div>
 
     <div class="row">
-        <label>English intent</label>
-        <input bind:value={intentEn} placeholder="What do you want to say?" />
+        <label for="intent">English intent</label>
+        <input
+            id="intent"
+            bind:value={intentEn}
+            placeholder="What do you want to say?"
+        />
         <button on:click={planReply}>Plan Reply</button>
     </div>
     {#if replyOptions.length}
@@ -203,8 +213,8 @@
     {/if}
 
     <div class="row">
-        <label>Apply suggestions to deck</label>
-        <input bind:value={applyDeck} />
+        <label for="applyDeck">Apply suggestions to deck</label>
+        <input id="applyDeck" bind:value={applyDeck} />
         <button on:click={applySuggestions}>Apply</button>
     </div>
 </div>
@@ -234,7 +244,15 @@
         text-align: right;
     }
     .tok {
-        cursor: help;
+        border: 0;
+        background: transparent;
+        padding: 0;
+        margin: 0;
+        font: inherit;
+        cursor: pointer;
+        color: inherit;
+        text-decoration: underline;
+        text-underline-offset: 2px;
     }
     .gloss {
         margin-top: 8px;

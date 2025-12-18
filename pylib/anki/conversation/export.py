@@ -20,7 +20,9 @@ class TelemetryExport:
         )
 
 
-def export_conversation_telemetry(col: Collection, *, limit_sessions: int = 100) -> TelemetryExport:
+def export_conversation_telemetry(
+    col: Collection, *, limit_sessions: int = 100
+) -> TelemetryExport:
     sessions_rows = col.db.all(
         "select id, deck_ids, started_ms, ended_ms, summary_json from elites_conversation_sessions order by id desc limit ?",
         limit_sessions,
@@ -74,4 +76,3 @@ def export_conversation_telemetry(col: Collection, *, limit_sessions: int = 100)
         )
 
     return TelemetryExport(sessions=sessions, events=events, items=items)
-

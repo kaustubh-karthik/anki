@@ -1,17 +1,22 @@
 from __future__ import annotations
 
+from .collocations import DEFAULT_KO_COLLOCATIONS, select_collocation_targets
+from .export import export_conversation_telemetry
 from .gateway import (
     ConversationGateway,
     ConversationProvider,
     OpenAIConversationProvider,
 )
-from .export import export_conversation_telemetry
-from .collocations import DEFAULT_KO_COLLOCATIONS, select_collocation_targets
 from .glossary import lookup_gloss, rebuild_glossary_from_snapshot
 from .grammar import DEFAULT_KO_GRAMMAR, select_grammar_patterns
-from .plan_reply import FakePlanReplyProvider, PlanReplyGateway, PlanReplyProvider, PlanReplyRequest
-from .plan_reply import OpenAIPlanReplyProvider
 from .openai import OpenAIResponsesJsonClient
+from .plan_reply import (
+    FakePlanReplyProvider,
+    OpenAIPlanReplyProvider,
+    PlanReplyGateway,
+    PlanReplyProvider,
+    PlanReplyRequest,
+)
 from .planner import ConversationPlanner, PlannerState
 from .redaction import redact_text
 from .settings import (

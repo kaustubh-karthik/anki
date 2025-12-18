@@ -58,6 +58,7 @@ def suggestions_from_wrap(
             back = None
         if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
             tags = ["conv_suggested"]
-        out.append(CardSuggestion(front=front, back=back, deck_id=deck_id, tags=tuple(tags)))
+        out.append(
+            CardSuggestion(front=front, back=back, deck_id=deck_id, tags=tuple(tags))
+        )
     return out
-

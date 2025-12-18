@@ -1,6 +1,7 @@
 # Conversation Practice Mode Architecture
 
 ## Layers
+
 1. **Presentation (Qt/React)**
    - `qt/aqt/conversation_dialog.py` orchestrates deck selection, session lifecycle, and injects a WebEngine view hosting the React UI.
    - `ts/src/conversation/` renders the chat transcript, progressive disclosure helpers, repair buttons, and end-of-session wrap-up.
@@ -19,49 +20,62 @@
 ## Request/Response Contract (Summary)
 
 ### Request payload (client → LLM)
+
 ```json
 {
-  "system_role": "...",
-  "conversation_state": {
-    "summary": "...",
-    "last_assistant_turn_ko": "...",
-    "last_user_turn_ko": "..."
-  },
-  "user_input": {
-    "text_ko": "...",
-    "confidence": "unsure"
-  },
-  "language_constraints": {
-    "must_target": [ {"id": "vocab_사이", "surface_forms": ["사이", "사이에"], "priority": 0.82} ],
-    "allowed_support": ["의자", "책상", "있다"],
-    "allowed_grammar": [ {"id": "gram_N_사이에_있다", "pattern": "N1와 N2 사이에 N3이/가 있다"} ],
-    "forbidden": {"introduce_new_vocab": true, "sentence_length_max": 20}
-  },
-  "generation_instructions": {
-    "conversation_goal": "Continue the conversation naturally and keep it going.",
-    "tone": "friendly",
-    "register": "해요체",
-    "provide_follow_up_question": true,
-    "provide_micro_feedback": true,
-    "provide_suggested_english_intent": true,
-    "max_corrections": 1
-  }
+    "system_role": "...",
+    "conversation_state": {
+        "summary": "...",
+        "last_assistant_turn_ko": "...",
+        "last_user_turn_ko": "..."
+    },
+    "user_input": {
+        "text_ko": "...",
+        "confidence": "unsure"
+    },
+    "language_constraints": {
+        "must_target": [
+            {
+                "id": "vocab_사이",
+                "surface_forms": ["사이", "사이에"],
+                "priority": 0.82
+            }
+        ],
+        "allowed_support": ["의자", "책상", "있다"],
+        "allowed_grammar": [
+            {
+                "id": "gram_N_사이에_있다",
+                "pattern": "N1와 N2 사이에 N3이/가 있다"
+            }
+        ],
+        "forbidden": { "introduce_new_vocab": true, "sentence_length_max": 20 }
+    },
+    "generation_instructions": {
+        "conversation_goal": "Continue the conversation naturally and keep it going.",
+        "tone": "friendly",
+        "register": "해요체",
+        "provide_follow_up_question": true,
+        "provide_micro_feedback": true,
+        "provide_suggested_english_intent": true,
+        "max_corrections": 1
+    }
 }
 ```
 
 ### Response payload (LLM → client)
+
 ```json
 {
-  "assistant_reply_ko": "아, 의자와 책상 사이에 가방이 있구나.",
-  "follow_up_question_ko": "책 위에는 뭐가 있어?",
-  "micro_feedback": {
-    "type": "correction",
-    "content_ko": "자연스럽게 말하면 이렇게 해요: 의자와 책상 사이에 있어요.",
-    "content_en": "A more natural way to say it is: it's between the chair and the desk."
-  },
-  "suggested_user_intent_en": "It's between the chair and the desk.",
-  "targets_used": ["vocab_사이"],
-  "unexpected_tokens": []
+    "assistant_reply_ko": "아, 의자와 책상 사이에 가방이 있구나.",
+    "follow_up_question_ko": "책 위에는 뭐가 있어?",
+    "micro_feedback": {
+        "type": "correction",
+        "content_ko": "자연스럽게 말하면 이렇게 해요: 의자와 책상 사이에 있어요.",
+        "content_en": "A more natural way to say it is: it's between the chair and the desk."
+    },
+    "suggested_user_intent_en": "It's between the chair and the desk.",
+    "targets_used": ["vocab_사이"],
+    "unexpected_tokens": []
 }
 ```
 
@@ -69,13 +83,14 @@ If `unexpected_tokens` is non-empty, the gateway automatically requests a rewrit
 
 ## Data Schema Sketch
 
-| Table | Key Fields | Purpose |
-| --- | --- | --- |
-| `conversation_sessions` | `id`, `deck_ids`, `started`, `ended`, `summary_json` | Session metadata + wrap-up summary. |
-| `conversation_events` | `id`, `session_id`, `turn_index`, `event_type`, `payload_json` | Hover/click/double-tap/confidence events with timestamps. |
-| `conversation_items` | `item_id`, `type`, `lexeme`, `grammar_pattern`, `fsrs_snapshot`, `mastery_stats_json`, `last_seen` | Long-lived mastery metrics aggregated per lexeme/grammar item. |
+| Table                   | Key Fields                                                                                         | Purpose                                                        |
+| ----------------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `conversation_sessions` | `id`, `deck_ids`, `started`, `ended`, `summary_json`                                               | Session metadata + wrap-up summary.                            |
+| `conversation_events`   | `id`, `session_id`, `turn_index`, `event_type`, `payload_json`                                     | Hover/click/double-tap/confidence events with timestamps.      |
+| `conversation_items`    | `item_id`, `type`, `lexeme`, `grammar_pattern`, `fsrs_snapshot`, `mastery_stats_json`, `last_seen` | Long-lived mastery metrics aggregated per lexeme/grammar item. |
 
 ## Control Flow Diagram
+
 ```
 [Deck Picker]
      |
@@ -90,6 +105,7 @@ If `unexpected_tokens` is non-empty, the gateway automatically requests a rewrit
 ```
 
 ## Privacy & Performance Considerations
+
 - All prompts redact personal note fields unless user whitelists them; sensitive data stays local.
 - Hover gloss uses bundled dictionary + deck-derived mapping; only nuance/explanations trigger an LLM call when user explicitly asks.
 - Planner and telemetry modules avoid heavy allocations; caching snapshot + dictionary lookups prevents redundant work.

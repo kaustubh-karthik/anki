@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import replace
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 
 from anki.collection import Collection
@@ -40,7 +39,9 @@ def load_conversation_settings(col: Collection) -> ConversationSettings:
         settings,
         redaction_level=raw.get("redaction_level", settings.redaction_level.value),
     )
-    settings = replace(settings, max_rewrites=raw.get("max_rewrites", settings.max_rewrites))
+    settings = replace(
+        settings, max_rewrites=raw.get("max_rewrites", settings.max_rewrites)
+    )
     settings = replace(
         settings,
         lexeme_field_index=raw.get("lexeme_field_index", settings.lexeme_field_index),
@@ -75,13 +76,23 @@ def load_conversation_settings(col: Collection) -> ConversationSettings:
         redaction_level = RedactionLevel.minimal.value
     if not isinstance(max_rewrites, int) or max_rewrites < 0 or max_rewrites > 10:
         max_rewrites = 2
-    if not isinstance(lexeme_field_index, int) or lexeme_field_index < 0 or lexeme_field_index > 50:
+    if (
+        not isinstance(lexeme_field_index, int)
+        or lexeme_field_index < 0
+        or lexeme_field_index > 50
+    ):
         lexeme_field_index = 0
     if gloss_field_index is not None and (
-        not isinstance(gloss_field_index, int) or gloss_field_index < 0 or gloss_field_index > 50
+        not isinstance(gloss_field_index, int)
+        or gloss_field_index < 0
+        or gloss_field_index > 50
     ):
         gloss_field_index = 1
-    if not isinstance(snapshot_max_items, int) or snapshot_max_items <= 0 or snapshot_max_items > 50000:
+    if (
+        not isinstance(snapshot_max_items, int)
+        or snapshot_max_items <= 0
+        or snapshot_max_items > 50000
+    ):
         snapshot_max_items = 5000
 
     return ConversationSettings(

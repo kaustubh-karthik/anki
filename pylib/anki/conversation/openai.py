@@ -30,7 +30,9 @@ class OpenAIResponsesJsonClient:
     api_url: str = "https://api.openai.com/v1/responses"
     http_client_factory: Callable[[], HttpClient] = HttpClient
 
-    def request_json(self, *, system_role: str, user_json: dict[str, Any]) -> dict[str, Any]:
+    def request_json(
+        self, *, system_role: str, user_json: dict[str, Any]
+    ) -> dict[str, Any]:
         payload = {
             "model": self.model,
             "input": [
@@ -44,7 +46,9 @@ class OpenAIResponsesJsonClient:
             "Content-Type": "application/json",
         }
         with self.http_client_factory() as client:
-            resp = client.post(self.api_url, data=orjson.dumps(payload), headers=headers)
+            resp = client.post(
+                self.api_url, data=orjson.dumps(payload), headers=headers
+            )
             data = resp.json()
 
         text = data.get("output_text")
@@ -54,4 +58,3 @@ class OpenAIResponsesJsonClient:
         if not isinstance(parsed, dict):
             raise ValueError("OpenAI returned non-object JSON")
         return parsed
-

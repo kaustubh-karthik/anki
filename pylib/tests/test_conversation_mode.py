@@ -3,21 +3,30 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
+from dataclasses import dataclass
 
-from anki.conversation.gateway import ConversationGateway, ConversationProvider
+from anki.consts import CARD_TYPE_REV, QUEUE_TYPE_REV
 from anki.conversation.events import apply_missed_targets
-from anki.conversation.planner import ConversationPlanner
-from anki.conversation.snapshot import build_deck_snapshot
-from anki.conversation.telemetry import ConversationTelemetryStore
 from anki.conversation.export import export_conversation_telemetry
-from anki.conversation.redaction import redact_text
-from anki.conversation.settings import RedactionLevel
-from anki.conversation.plan_reply import FakePlanReplyProvider, PlanReplyGateway, PlanReplyRequest
-from anki.conversation.suggest import apply_suggested_cards, suggestions_from_wrap
+from anki.conversation.gateway import ConversationGateway, ConversationProvider
 from anki.conversation.glossary import lookup_gloss, rebuild_glossary_from_snapshot
-from anki.conversation.settings import load_conversation_settings, save_conversation_settings, ConversationSettings
+from anki.conversation.plan_reply import (
+    FakePlanReplyProvider,
+    PlanReplyGateway,
+    PlanReplyRequest,
+)
+from anki.conversation.planner import ConversationPlanner
+from anki.conversation.redaction import redact_text
+from anki.conversation.settings import (
+    ConversationSettings,
+    RedactionLevel,
+    load_conversation_settings,
+    save_conversation_settings,
+)
+from anki.conversation.snapshot import build_deck_snapshot
+from anki.conversation.suggest import apply_suggested_cards, suggestions_from_wrap
+from anki.conversation.telemetry import ConversationTelemetryStore
 from anki.conversation.topics import get_topic
 from anki.conversation.types import (
     ConversationRequest,
@@ -30,7 +39,6 @@ from anki.conversation.types import (
     UserInput,
 )
 from anki.decks import DeckId
-from anki.consts import CARD_TYPE_REV, QUEUE_TYPE_REV
 from tests.shared import getEmptyCol
 
 
@@ -69,7 +77,9 @@ def test_export_telemetry_json_roundtrip() -> None:
     try:
         store = ConversationTelemetryStore(col)
         sid = store.start_session([1])
-        store.log_event(session_id=sid, turn_index=1, event_type="turn", payload={"x": 1})
+        store.log_event(
+            session_id=sid, turn_index=1, event_type="turn", payload={"x": 1}
+        )
         store.end_session(sid, summary={"turns": 1})
         exported = export_conversation_telemetry(col, limit_sessions=10)
         data = json.loads(exported.to_json())
@@ -122,7 +132,11 @@ def test_cli_run_is_fully_automatable_and_writes_db(tmp_path) -> None:
                     {
                         "assistant_reply_ko": "고양이 있어요.",
                         "follow_up_question_ko": "뭐가 있어요?",
-                        "micro_feedback": {"type": "none", "content_ko": "", "content_en": ""},
+                        "micro_feedback": {
+                            "type": "none",
+                            "content_ko": "",
+                            "content_en": "",
+                        },
                         "suggested_user_intent_en": None,
                         "targets_used": [],
                         "unexpected_tokens": [],
@@ -131,7 +145,11 @@ def test_cli_run_is_fully_automatable_and_writes_db(tmp_path) -> None:
                     {
                         "assistant_reply_ko": "의자 있어요.",
                         "follow_up_question_ko": "뭐가 있어요?",
-                        "micro_feedback": {"type": "none", "content_ko": "", "content_en": ""},
+                        "micro_feedback": {
+                            "type": "none",
+                            "content_ko": "",
+                            "content_en": "",
+                        },
                         "suggested_user_intent_en": None,
                         "targets_used": [],
                         "unexpected_tokens": [],
@@ -166,9 +184,14 @@ def test_cli_run_is_fully_automatable_and_writes_db(tmp_path) -> None:
 
         opened = Collection(collection_path)
         try:
-            assert opened.db.scalar("select count() from elites_conversation_sessions") == 1
+            assert (
+                opened.db.scalar("select count() from elites_conversation_sessions")
+                == 1
+            )
             # dont_know + lookup + repair_move + turn
-            assert opened.db.scalar("select count() from elites_conversation_events") == 4
+            assert (
+                opened.db.scalar("select count() from elites_conversation_events") == 4
+            )
             mastery_json = opened.db.scalar(
                 "select mastery_json from elites_conversation_items where item_id=?",
                 "lexeme:의자",
@@ -259,7 +282,9 @@ def test_snapshot_multi_deck_collation() -> None:
             card.did = did2
             card.flush()
 
-        snapshot = build_deck_snapshot(col, [DeckId(did1), DeckId(did2)], include_fsrs_metrics=False)
+        snapshot = build_deck_snapshot(
+            col, [DeckId(did1), DeckId(did2)], include_fsrs_metrics=False
+        )
         assert set(snapshot.deck_ids) == {did1, did2}
         lexemes = {i.lexeme for i in snapshot.items}
         assert "의자" in lexemes and "책상" in lexemes
@@ -346,7 +371,14 @@ def test_gateway_rewrites_on_unexpected_tokens() -> None:
     gateway = ConversationGateway(provider=provider, max_rewrites=1)
 
     constraints = LanguageConstraints(
-        must_target=(MustTarget(id=ItemId("lexeme:의자"), type="vocab", surface_forms=("의자",), priority=1.0),),
+        must_target=(
+            MustTarget(
+                id=ItemId("lexeme:의자"),
+                type="vocab",
+                surface_forms=("의자",),
+                priority=1.0,
+            ),
+        ),
         allowed_support=("의자", "있어요", "뭐가", "있어", "거기", "여기"),
         allowed_grammar=(),
     )
@@ -381,7 +413,14 @@ def test_gateway_enforces_sentence_length_max() -> None:
     provider = _LongReplyProvider()
     gateway = ConversationGateway(provider=provider, max_rewrites=0)
     constraints = LanguageConstraints(
-        must_target=(MustTarget(id=ItemId("lexeme:의자"), type="vocab", surface_forms=("의자",), priority=1.0),),
+        must_target=(
+            MustTarget(
+                id=ItemId("lexeme:의자"),
+                type="vocab",
+                surface_forms=("의자",),
+                priority=1.0,
+            ),
+        ),
         allowed_support=("의자", "뭐예요"),
         allowed_grammar=(),
     )
@@ -417,7 +456,11 @@ def test_gateway_enforces_sentence_length_max() -> None:
 def test_plan_reply_gateway_rewrites_on_unexpected_tokens() -> None:
     provider = FakePlanReplyProvider(
         scripted=[
-            {"options_ko": ["고양이 있어요."], "notes_en": None, "unexpected_tokens": []},
+            {
+                "options_ko": ["고양이 있어요."],
+                "notes_en": None,
+                "unexpected_tokens": [],
+            },
             {"options_ko": ["의자 있어요."], "notes_en": None, "unexpected_tokens": []},
         ]
     )
@@ -427,10 +470,19 @@ def test_plan_reply_gateway_rewrites_on_unexpected_tokens() -> None:
         conversation_state=ConversationState(summary="x"),
         intent_en="There is a chair.",
         language_constraints=LanguageConstraints(
-            must_target=(MustTarget(id=ItemId("lexeme:의자"), type="vocab", surface_forms=("의자",), priority=1.0),),
+            must_target=(
+                MustTarget(
+                    id=ItemId("lexeme:의자"),
+                    type="vocab",
+                    surface_forms=("의자",),
+                    priority=1.0,
+                ),
+            ),
             allowed_support=("의자", "있어요", "뭐예요"),
             allowed_grammar=(),
-            forbidden=ForbiddenConstraints(introduce_new_vocab=True, sentence_length_max=20),
+            forbidden=ForbiddenConstraints(
+                introduce_new_vocab=True, sentence_length_max=20
+            ),
         ),
         generation_instructions=GenerationInstructions(safe_mode=True),
     )
@@ -540,8 +592,8 @@ def test_mastery_upsert_and_increment() -> None:
 
 
 def test_hover_does_not_create_mastery_signal(tmp_path) -> None:
-    from anki.conversation import cli
     from anki.collection import Collection
+    from anki.conversation import cli
 
     col = getEmptyCol()
     try:
@@ -571,7 +623,11 @@ def test_hover_does_not_create_mastery_signal(tmp_path) -> None:
                     {
                         "assistant_reply_ko": "의자 있어요.",
                         "follow_up_question_ko": "뭐가 있어요?",
-                        "micro_feedback": {"type": "none", "content_ko": "", "content_en": ""},
+                        "micro_feedback": {
+                            "type": "none",
+                            "content_ko": "",
+                            "content_en": "",
+                        },
                         "suggested_user_intent_en": None,
                         "targets_used": [],
                         "unexpected_tokens": [],
@@ -778,7 +834,11 @@ def test_planner_micro_spacing_reuses_due_targets() -> None:
 
         # Turn 2/3: other targets
         _, c2, _ = planner.plan_turn(
-            state, UserInput(text_ko="응"), must_target_count=1, mastery={}, reuse_delay_turns=2
+            state,
+            UserInput(text_ko="응"),
+            must_target_count=1,
+            mastery={},
+            reuse_delay_turns=2,
         )
         planner.observe_turn(
             state,
@@ -788,7 +848,11 @@ def test_planner_micro_spacing_reuses_due_targets() -> None:
             follow_up_question_ko="뭐예요?",
         )
         _, c3, _ = planner.plan_turn(
-            state, UserInput(text_ko="응"), must_target_count=1, mastery={}, reuse_delay_turns=2
+            state,
+            UserInput(text_ko="응"),
+            must_target_count=1,
+            mastery={},
+            reuse_delay_turns=2,
         )
 
         # Turn 3 should have reused the first target (due)
@@ -812,7 +876,9 @@ def test_observe_turn_returns_missed_targets() -> None:
         snapshot = build_deck_snapshot(col, [DeckId(did)], include_fsrs_metrics=False)
         planner = ConversationPlanner(snapshot)
         state = planner.initial_state(summary="x")
-        _, constraints, _ = planner.plan_turn(state, UserInput(text_ko="응"), must_target_count=1, mastery={})
+        _, constraints, _ = planner.plan_turn(
+            state, UserInput(text_ko="응"), must_target_count=1, mastery={}
+        )
         missed = planner.observe_turn(
             state,
             constraints=constraints,
@@ -901,7 +967,9 @@ def test_planner_emits_new_grammar_and_collocation_patterns() -> None:
             must_target_count=2,
             mastery={},
         )
-        assert any(t.id == ItemId("colloc:~하면_안_돼요") for t in constraints.must_target)
+        assert any(
+            t.id == ItemId("colloc:~하면_안_돼요") for t in constraints.must_target
+        )
         assert any("안 돼요" in gp.pattern for gp in constraints.allowed_grammar)
     finally:
         col.close()
@@ -924,7 +992,9 @@ def test_collocation_requires_all_tokens_to_count_used() -> None:
         planner = ConversationPlanner(snapshot)
 
         state1 = planner.initial_state(summary="x")
-        _, c1, _ = planner.plan_turn(state1, UserInput(text_ko="응"), must_target_count=2, mastery={})
+        _, c1, _ = planner.plan_turn(
+            state1, UserInput(text_ko="응"), must_target_count=2, mastery={}
+        )
         colloc1 = next(t for t in c1.must_target if t.type == "collocation")
         missed1 = planner.observe_turn(
             state1,
@@ -936,7 +1006,9 @@ def test_collocation_requires_all_tokens_to_count_used() -> None:
         assert str(colloc1.id) in missed1
 
         state2 = planner.initial_state(summary="x")
-        _, c2, _ = planner.plan_turn(state2, UserInput(text_ko="응"), must_target_count=2, mastery={})
+        _, c2, _ = planner.plan_turn(
+            state2, UserInput(text_ko="응"), must_target_count=2, mastery={}
+        )
         colloc2 = next(t for t in c2.must_target if t.type == "collocation")
         both = " ".join(colloc2.surface_forms)
         missed2 = planner.observe_turn(

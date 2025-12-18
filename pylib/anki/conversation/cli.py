@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import dataclass
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -12,8 +11,19 @@ import orjson
 from anki.collection import Collection
 from anki.decks import DeckId
 
+from .events import (
+    apply_missed_targets,
+    bump_assistant_used_lexemes,
+    bump_user_used_lexemes,
+    record_event_from_payload,
+    record_turn_event,
+)
 from .export import export_conversation_telemetry
-from .gateway import ConversationGateway, ConversationProvider, OpenAIConversationProvider
+from .gateway import (
+    ConversationGateway,
+    ConversationProvider,
+    OpenAIConversationProvider,
+)
 from .glossary import lookup_gloss, rebuild_glossary_from_snapshot
 from .plan_reply import (
     FakePlanReplyProvider,
@@ -22,22 +32,19 @@ from .plan_reply import (
     PlanReplyRequest,
 )
 from .planner import ConversationPlanner
+from .prompts import SYSTEM_ROLE
 from .redaction import redact_text
-from .settings import ConversationSettings, RedactionLevel
-from .settings import load_conversation_settings, save_conversation_settings
+from .settings import (
+    ConversationSettings,
+    RedactionLevel,
+    load_conversation_settings,
+    save_conversation_settings,
+)
 from .snapshot import build_deck_snapshot
 from .suggest import apply_suggested_cards, suggestions_from_wrap
 from .telemetry import ConversationTelemetryStore
 from .types import ConversationRequest, GenerationInstructions, UserInput
 from .wrap import compute_session_wrap
-from .events import (
-    apply_missed_targets,
-    bump_assistant_used_lexemes,
-    bump_user_used_lexemes,
-    record_event_from_payload,
-    record_turn_event,
-)
-from .prompts import SYSTEM_ROLE
 
 
 class FakeConversationProvider(ConversationProvider):
@@ -98,7 +105,9 @@ def main(argv: list[str] | None = None) -> None:
 
     run = sub.add_parser("run", help="Run a text-only conversation session")
     run.add_argument("--collection", required=True, help="Path to .anki2 file")
-    run.add_argument("--deck", action="append", required=True, help="Deck name (repeatable)")
+    run.add_argument(
+        "--deck", action="append", required=True, help="Deck name (repeatable)"
+    )
     run.add_argument("--script", required=True, help="Path to JSON script")
     run.add_argument("--topic", help="Optional topic id (eg room_objects)")
     run.add_argument(
@@ -109,7 +118,9 @@ def main(argv: list[str] | None = None) -> None:
     )
     run.add_argument("--api-key-file", default="gpt-api.txt")
     run.add_argument("--model", default="gpt-5-nano")
-    run.add_argument("--redaction", choices=[e.value for e in RedactionLevel], default="minimal")
+    run.add_argument(
+        "--redaction", choices=[e.value for e in RedactionLevel], default="minimal"
+    )
     run.add_argument("--safe-mode", action=argparse.BooleanOptionalAction, default=True)
     run.add_argument("--lexeme-field-index", type=int, default=0)
     run.add_argument("--gloss-field-index", type=int, default=1)
@@ -120,7 +131,9 @@ def main(argv: list[str] | None = None) -> None:
         help="JSON file with scripted assistant responses (fake provider only)",
     )
 
-    snap = sub.add_parser("snapshot", help="Print a deterministic deck snapshot as JSON")
+    snap = sub.add_parser(
+        "snapshot", help="Print a deterministic deck snapshot as JSON"
+    )
     snap.add_argument("--collection", required=True)
     snap.add_argument("--deck", action="append", required=True)
     snap.add_argument("--lexeme-field-index", type=int, default=0)
@@ -128,30 +141,48 @@ def main(argv: list[str] | None = None) -> None:
     snap.add_argument("--no-gloss-field", action="store_true")
     snap.add_argument("--snapshot-max-items", type=int, default=5000)
 
-    export = sub.add_parser("export-telemetry", help="Export stored conversation telemetry as JSON")
+    export = sub.add_parser(
+        "export-telemetry", help="Export stored conversation telemetry as JSON"
+    )
     export.add_argument("--collection", required=True)
     export.add_argument("--limit-sessions", type=int, default=100)
 
-    plan = sub.add_parser("plan-reply", help="Generate 2-3 Korean reply options from English intent")
+    plan = sub.add_parser(
+        "plan-reply", help="Generate 2-3 Korean reply options from English intent"
+    )
     plan.add_argument("--collection", required=True)
     plan.add_argument("--deck", action="append", required=True)
     plan.add_argument("--intent-en", required=True)
     plan.add_argument("--provider", choices=["fake", "openai"], default="fake")
-    plan.add_argument("--provider-script", help="JSON file with scripted plan outputs (fake provider only)")
+    plan.add_argument(
+        "--provider-script",
+        help="JSON file with scripted plan outputs (fake provider only)",
+    )
     plan.add_argument("--api-key-file", default="gpt-api.txt")
     plan.add_argument("--model", default="gpt-5-nano")
-    plan.add_argument("--safe-mode", action=argparse.BooleanOptionalAction, default=True)
+    plan.add_argument(
+        "--safe-mode", action=argparse.BooleanOptionalAction, default=True
+    )
 
-    apply_sug = sub.add_parser("apply-suggestions", help="Apply suggested cards from the most recent session wrap")
+    apply_sug = sub.add_parser(
+        "apply-suggestions",
+        help="Apply suggested cards from the most recent session wrap",
+    )
     apply_sug.add_argument("--collection", required=True)
-    apply_sug.add_argument("--deck", required=True, help="Target deck name for added notes")
+    apply_sug.add_argument(
+        "--deck", required=True, help="Target deck name for added notes"
+    )
     apply_sug.add_argument("--limit-sessions", type=int, default=1)
 
-    gloss = sub.add_parser("gloss", help="Lookup a lexeme gloss from the offline glossary cache")
+    gloss = sub.add_parser(
+        "gloss", help="Lookup a lexeme gloss from the offline glossary cache"
+    )
     gloss.add_argument("--collection", required=True)
     gloss.add_argument("--lexeme", required=True)
 
-    rebuild = sub.add_parser("rebuild-glossary", help="Rebuild glossary cache from selected deck(s)")
+    rebuild = sub.add_parser(
+        "rebuild-glossary", help="Rebuild glossary cache from selected deck(s)"
+    )
     rebuild.add_argument("--collection", required=True)
     rebuild.add_argument("--deck", action="append", required=True)
     rebuild.add_argument("--lexeme-field-index", type=int, default=0)
@@ -205,7 +236,9 @@ def _cmd_run(args: argparse.Namespace) -> None:
             col,
             deck_ids,
             lexeme_field_index=int(args.lexeme_field_index),
-            gloss_field_index=None if args.no_gloss_field else int(args.gloss_field_index),
+            gloss_field_index=None
+            if args.no_gloss_field
+            else int(args.gloss_field_index),
             max_items=int(args.snapshot_max_items),
         )
         planner = ConversationPlanner(snapshot)
@@ -221,7 +254,9 @@ def _cmd_run(args: argparse.Namespace) -> None:
         if args.provider == "fake":
             scripted = []
             if args.provider_script:
-                scripted = json.loads(Path(args.provider_script).read_text(encoding="utf-8"))
+                scripted = json.loads(
+                    Path(args.provider_script).read_text(encoding="utf-8")
+                )
                 if not isinstance(scripted, list):
                     raise SystemExit("--provider-script must be a JSON list")
             provider = FakeConversationProvider(scripted=scripted)
@@ -235,12 +270,18 @@ def _cmd_run(args: argparse.Namespace) -> None:
             safe_mode=bool(args.safe_mode),
             redaction_level=RedactionLevel(args.redaction),
             lexeme_field_index=int(args.lexeme_field_index),
-            gloss_field_index=None if args.no_gloss_field else int(args.gloss_field_index),
+            gloss_field_index=None
+            if args.no_gloss_field
+            else int(args.gloss_field_index),
             snapshot_max_items=int(args.snapshot_max_items),
         )
-        gateway = ConversationGateway(provider=provider, max_rewrites=settings.max_rewrites)
+        gateway = ConversationGateway(
+            provider=provider, max_rewrites=settings.max_rewrites
+        )
 
-        state = planner.initial_state(summary="Conversation practice", topic_id=args.topic)
+        state = planner.initial_state(
+            summary="Conversation practice", topic_id=args.topic
+        )
         transcript: list[dict[str, Any]] = []
         for turn in turns:
             redacted = redact_text(turn.user_text_ko, settings.redaction_level)
@@ -348,7 +389,9 @@ def _cmd_snapshot(args: argparse.Namespace) -> None:
             col,
             deck_ids,
             lexeme_field_index=int(args.lexeme_field_index),
-            gloss_field_index=None if args.no_gloss_field else int(args.gloss_field_index),
+            gloss_field_index=None
+            if args.no_gloss_field
+            else int(args.gloss_field_index),
             max_items=int(args.snapshot_max_items),
         )
         print(
@@ -382,7 +425,9 @@ def _cmd_snapshot(args: argparse.Namespace) -> None:
 def _cmd_export(args: argparse.Namespace) -> None:
     col = Collection(args.collection)
     try:
-        exported = export_conversation_telemetry(col, limit_sessions=args.limit_sessions)
+        exported = export_conversation_telemetry(
+            col, limit_sessions=args.limit_sessions
+        )
         print(exported.to_json())
     finally:
         col.close()
@@ -420,7 +465,9 @@ def _cmd_plan_reply(args: argparse.Namespace) -> None:
         if args.provider == "fake":
             scripted = []
             if args.provider_script:
-                scripted = json.loads(Path(args.provider_script).read_text(encoding="utf-8"))
+                scripted = json.loads(
+                    Path(args.provider_script).read_text(encoding="utf-8")
+                )
                 if not isinstance(scripted, list):
                     raise SystemExit("--provider-script must be a JSON list")
             provider = FakePlanReplyProvider(scripted=scripted)
@@ -480,7 +527,11 @@ def _cmd_gloss(args: argparse.Namespace) -> None:
         if entry is None:
             print(orjson.dumps({"found": False}).decode("utf-8"))
         else:
-            print(orjson.dumps({"found": True, "lexeme": entry.lexeme, "gloss": entry.gloss}).decode("utf-8"))
+            print(
+                orjson.dumps(
+                    {"found": True, "lexeme": entry.lexeme, "gloss": entry.gloss}
+                ).decode("utf-8")
+            )
     finally:
         col.close()
 
@@ -498,7 +549,9 @@ def _cmd_rebuild_glossary(args: argparse.Namespace) -> None:
             col,
             deck_ids,
             lexeme_field_index=int(args.lexeme_field_index),
-            gloss_field_index=None if args.no_gloss_field else int(args.gloss_field_index),
+            gloss_field_index=None
+            if args.no_gloss_field
+            else int(args.gloss_field_index),
             max_items=int(args.snapshot_max_items),
         )
         count = rebuild_glossary_from_snapshot(col, snapshot)
@@ -522,7 +575,9 @@ def _cmd_settings(args: argparse.Namespace) -> None:
             settings = replace(settings, safe_mode=args.set_safe_mode == "true")
             changed = True
         if args.set_redaction is not None:
-            settings = replace(settings, redaction_level=RedactionLevel(args.set_redaction))
+            settings = replace(
+                settings, redaction_level=RedactionLevel(args.set_redaction)
+            )
             changed = True
         if args.set_max_rewrites is not None:
             settings = replace(settings, max_rewrites=args.set_max_rewrites)

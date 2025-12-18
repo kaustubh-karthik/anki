@@ -6,4 +6,3 @@ SYSTEM_ROLE = (
     "Follow the provided constraints exactly. "
     "Return output strictly in the requested JSON format, and no prose outside it."
 )
-

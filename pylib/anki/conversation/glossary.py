@@ -54,4 +54,3 @@ def lookup_gloss(col: Collection, lexeme: str) -> GlossaryEntry | None:
     if gloss is not None and not isinstance(gloss, str):
         gloss = None
     return GlossaryEntry(lexeme=lex, gloss=gloss)
-

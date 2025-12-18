@@ -69,8 +69,10 @@ class PlanReplyResponse:
         if not isinstance(data, dict):
             raise ValueError("plan-reply response must be a JSON object")
         options = data.get("options_ko")
-        if not isinstance(options, list) or not options or not all(
-            isinstance(x, str) and x.strip() for x in options
+        if (
+            not isinstance(options, list)
+            or not options
+            or not all(isinstance(x, str) and x.strip() for x in options)
         ):
             raise ValueError("options_ko must be a non-empty list of strings")
         if len(options) > 5:
@@ -79,9 +81,15 @@ class PlanReplyResponse:
         if notes_en is not None and not isinstance(notes_en, str):
             raise ValueError("notes_en must be a string or null")
         unexpected = data.get("unexpected_tokens", [])
-        if not isinstance(unexpected, list) or not all(isinstance(x, str) for x in unexpected):
+        if not isinstance(unexpected, list) or not all(
+            isinstance(x, str) for x in unexpected
+        ):
             raise ValueError("unexpected_tokens must be a list of strings")
-        return cls(options_ko=tuple(options), notes_en=notes_en, unexpected_tokens=tuple(unexpected))
+        return cls(
+            options_ko=tuple(options),
+            notes_en=notes_en,
+            unexpected_tokens=tuple(unexpected),
+        )
 
     def to_json_dict(self) -> dict[str, Any]:
         return {
@@ -141,7 +149,9 @@ class PlanReplyGateway:
                     if len(opt.split()) > max_tokens:
                         if attempt >= self.max_rewrites:
                             raise ValueError("contract violation: sentence_length_max")
-                        request = _rewrite_request(request, reason="sentence_length_max")
+                        request = _rewrite_request(
+                            request, reason="sentence_length_max"
+                        )
                         break
                 else:
                     return response
@@ -178,7 +188,11 @@ class FakePlanReplyProvider(PlanReplyProvider):
 
     def generate(self, *, request: PlanReplyRequest) -> dict[str, Any]:
         if self.i >= len(self.scripted):
-            return {"options_ko": ["네, 알겠어요."], "notes_en": None, "unexpected_tokens": []}
+            return {
+                "options_ko": ["네, 알겠어요."],
+                "notes_en": None,
+                "unexpected_tokens": [],
+            }
         out = self.scripted[self.i]
         self.i += 1
         return out
@@ -191,4 +205,6 @@ class OpenAIPlanReplyProvider(PlanReplyProvider):
 
     def generate(self, *, request: PlanReplyRequest) -> dict[str, Any]:
         client = OpenAIResponsesJsonClient(api_key=self.api_key, model=self.model)
-        return client.request_json(system_role=request.system_role, user_json=request.to_json_dict())
+        return client.request_json(
+            system_role=request.system_role, user_json=request.to_json_dict()
+        )

@@ -34,7 +34,9 @@ def compute_session_wrap(
 
         item = next((i for i in snapshot.items if i.lexeme == lexeme), None)
         stability = item.stability if item else None
-        rustiness = 1.0 / (1.0 + max(stability or 0.0, 0.0)) if stability is not None else 0.0
+        rustiness = (
+            1.0 / (1.0 + max(stability or 0.0, 0.0)) if stability is not None else 0.0
+        )
         return (
             practice_again * 2.0
             + dont_know * 1.5

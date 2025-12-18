@@ -8,24 +8,28 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import aqt
-from anki.decks import DeckId
 from anki.conversation import (
     ConversationGateway,
     ConversationPlanner,
     ConversationTelemetryStore,
     OpenAIConversationProvider,
-    build_deck_snapshot,
-    lookup_gloss,
-    compute_session_wrap,
-    apply_suggested_cards,
-    suggestions_from_wrap,
+    OpenAIPlanReplyProvider,
     PlanReplyGateway,
     PlanReplyRequest,
-    OpenAIPlanReplyProvider,
+    apply_suggested_cards,
+    build_deck_snapshot,
+    compute_session_wrap,
+    lookup_gloss,
+    suggestions_from_wrap,
 )
 from anki.conversation.events import apply_missed_targets, record_event_from_payload
 from anki.conversation.prompts import SYSTEM_ROLE
-from anki.conversation.types import ConversationRequest, GenerationInstructions, UserInput
+from anki.conversation.types import (
+    ConversationRequest,
+    GenerationInstructions,
+    UserInput,
+)
+from anki.decks import DeckId
 from aqt.qt import *
 from aqt.utils import disable_help_button, restoreGeom, saveGeom
 from aqt.webview import AnkiWebView, AnkiWebViewKind
@@ -102,7 +106,9 @@ class ConversationDialog(QDialog):
 
     def _start_session(self, payload: dict[str, Any]) -> dict[str, Any]:
         deck_names = payload.get("decks") or []
-        if not isinstance(deck_names, list) or not all(isinstance(x, str) for x in deck_names):
+        if not isinstance(deck_names, list) or not all(
+            isinstance(x, str) for x in deck_names
+        ):
             return {"ok": False, "error": "invalid decks"}
         deck_ids: list[int] = []
         for name in deck_names:
@@ -114,7 +120,9 @@ class ConversationDialog(QDialog):
         planner = ConversationPlanner(snapshot)
         telemetry = ConversationTelemetryStore(self.mw.col)
         session_id = telemetry.start_session(list(snapshot.deck_ids))
-        mastery_cache = telemetry.load_mastery_cache([str(i.item_id) for i in snapshot.items])
+        mastery_cache = telemetry.load_mastery_cache(
+            [str(i.item_id) for i in snapshot.items]
+        )
         # dev convenience: read key from gpt-api.txt if present
         try:
             api_key = open("gpt-api.txt", encoding="utf-8").read().strip()
@@ -127,7 +135,9 @@ class ConversationDialog(QDialog):
         topic_id = payload.get("topic_id")
         if not isinstance(topic_id, str):
             topic_id = None
-        state = planner.initial_state(summary="Conversation practice", topic_id=topic_id)
+        state = planner.initial_state(
+            summary="Conversation practice", topic_id=topic_id
+        )
         self._session = _Session(
             deck_ids=deck_ids,
             snapshot=snapshot,
@@ -139,7 +149,11 @@ class ConversationDialog(QDialog):
             session_id=session_id,
             lexeme_set={i.lexeme for i in snapshot.items},
         )
-        return {"ok": True, "session_id": session_id, "llm_enabled": gateway is not None}
+        return {
+            "ok": True,
+            "session_id": session_id,
+            "llm_enabled": gateway is not None,
+        }
 
     def _run_turn(self, payload: dict[str, Any]) -> dict[str, Any]:
         if self._session is None:
@@ -207,7 +221,9 @@ class ConversationDialog(QDialog):
     def _get_wrap(self) -> dict[str, Any]:
         if self._session is None:
             return {"ok": False, "error": "session not started"}
-        wrap = compute_session_wrap(snapshot=self._session.snapshot, mastery=self._session.mastery_cache)
+        wrap = compute_session_wrap(
+            snapshot=self._session.snapshot, mastery=self._session.mastery_cache
+        )
         return {"ok": True, "wrap": wrap}
 
     def _apply_suggestions(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -219,7 +235,9 @@ class ConversationDialog(QDialog):
         did = self.mw.col.decks.id_for_name(deck_name)
         if not did:
             return {"ok": False, "error": "deck not found"}
-        wrap = compute_session_wrap(snapshot=self._session.snapshot, mastery=self._session.mastery_cache)
+        wrap = compute_session_wrap(
+            snapshot=self._session.snapshot, mastery=self._session.mastery_cache
+        )
         suggestions = suggestions_from_wrap(wrap, deck_id=int(did))
         created = apply_suggested_cards(self.mw.col, suggestions)
         return {"ok": True, "created_note_ids": created}
@@ -241,7 +259,9 @@ class ConversationDialog(QDialog):
         gateway = PlanReplyGateway(provider=provider)
         # reuse planner constraints for current state
         conv_state, constraints, instructions = self._session.planner.plan_turn(
-            self._session.state, UserInput(text_ko=""), mastery=self._session.mastery_cache
+            self._session.state,
+            UserInput(text_ko=""),
+            mastery=self._session.mastery_cache,
         )
         req = PlanReplyRequest(
             system_role=SYSTEM_ROLE,

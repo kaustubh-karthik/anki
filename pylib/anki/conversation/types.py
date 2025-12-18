@@ -144,7 +144,9 @@ class ConversationResponse:
                 raise ValueError("micro_feedback must be an object or null")
             fb_type = micro_feedback.get("type")
             if fb_type not in ("none", "correction", "praise"):
-                raise ValueError("micro_feedback.type must be one of: none, correction, praise")
+                raise ValueError(
+                    "micro_feedback.type must be one of: none, correction, praise"
+                )
             content_ko = micro_feedback.get("content_ko", "")
             content_en = micro_feedback.get("content_en", "")
             if not isinstance(content_ko, str) or not isinstance(content_en, str):
