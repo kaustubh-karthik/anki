@@ -4,12 +4,15 @@
 
     let started = false;
     let decksText = "Korean";
+    let topicId = "room_objects";
     let message = "";
+    let confidence: "confident" | "unsure" | "guessing" | null = null;
     let transcript: Array<{ role: "user" | "assistant"; text: string }> = [];
     let lastGloss: string | null = null;
     let error: string | null = null;
     let intentEn = "";
     let replyOptions: string[] = [];
+    let applyDeck = "Korean";
 
     function start(): void {
         error = null;
@@ -22,7 +25,7 @@
             .map((s) => s.trim())
             .filter(Boolean);
         bridgeCommand(
-            buildConversationCommand("start", { decks }),
+            buildConversationCommand("start", { decks, topic_id: topicId || null }),
             (resp: { ok: boolean; error?: string }) => {
                 if (!resp?.ok) {
                     error = resp?.error ?? "Failed to start session.";
@@ -47,7 +50,7 @@
         transcript = [...transcript, { role: "user", text }];
         message = "";
         bridgeCommand(
-            buildConversationCommand("turn", { text_ko: text, confidence: null }),
+            buildConversationCommand("turn", { text_ko: text, confidence }),
             (resp: ConversationTurnResponse) => {
                 if (!resp?.ok) {
                     error = resp?.error ?? "Turn failed.";
@@ -109,6 +112,20 @@
             replyOptions = resp.plan?.options_ko ?? [];
         });
     }
+
+    function applySuggestions(): void {
+        error = null;
+        bridgeCommand(
+            buildConversationCommand("apply_suggestions", { deck: applyDeck }),
+            (resp: any) => {
+                if (!resp?.ok) {
+                    error = resp?.error ?? "apply suggestions failed.";
+                    return;
+                }
+                lastGloss = `created notes: ${(resp.created_note_ids ?? []).join(", ")}`;
+            },
+        );
+    }
 </script>
 
 <div class="page">
@@ -120,6 +137,8 @@
     <div class="row">
         <label>Decks (comma-separated)</label>
         <input bind:value={decksText} />
+        <label>Topic</label>
+        <input bind:value={topicId} />
         <button on:click={start}>Start</button>
     </div>
 
@@ -132,6 +151,10 @@
                         on:mouseenter={() => gloss(tok)}
                         on:click={() => logEvent("dont_know", tok)}
                         on:dblclick={() => logEvent("practice_again", tok)}
+                        on:contextmenu={(e) => {
+                            e.preventDefault();
+                            logEvent("mark_confusing", tok);
+                        }}
                         >{tok}</span
                     >
                     <span> </span>
@@ -141,6 +164,12 @@
     </div>
 
     <div class="row">
+        <select bind:value={confidence}>
+            <option value={null}>confidence: (none)</option>
+            <option value="confident">confident</option>
+            <option value="unsure">unsure</option>
+            <option value="guessing">guessing</option>
+        </select>
         <input
             placeholder="Type Korean…"
             bind:value={message}
@@ -172,6 +201,12 @@
             {/each}
         </div>
     {/if}
+
+    <div class="row">
+        <label>Apply suggestions to deck</label>
+        <input bind:value={applyDeck} />
+        <button on:click={applySuggestions}>Apply</button>
+    </div>
 </div>
 
 <style>
