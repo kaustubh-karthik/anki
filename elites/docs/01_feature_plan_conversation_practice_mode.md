@@ -242,6 +242,11 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 - Added progressive disclosure UI controls under each assistant turn: Hint (shows `targets_used`/`unexpected_tokens`), Explain (shows `micro_feedback`), Translate (currently surfaces `suggested_user_intent_en`), plus Practice-targets and message-level Mark-confusing events.
 - Ran `./ninja check` successfully after UI changes.
 
+### 2025-12-18 — Codex
+
+- Added “repair move” quick buttons (clarify meaning / simplify / confirm) that log `repair_move` telemetry and optionally prefill the input to keep flow.
+- Ran `./ninja check` successfully after UI changes.
+
 ## Open Issues
 
 - [ ] Decide on default local dictionary source and licensing (offline-first, redistributable).
