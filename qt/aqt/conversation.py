@@ -23,7 +23,10 @@ from anki.conversation import (
     suggestions_from_wrap,
 )
 from anki.conversation.events import apply_missed_targets, record_event_from_payload
+from anki.conversation.keys import resolve_openai_api_key
 from anki.conversation.prompts import SYSTEM_ROLE
+from anki.conversation.redaction import redact_text
+from anki.conversation.settings import ConversationSettings, load_conversation_settings
 from anki.conversation.types import (
     ConversationRequest,
     GenerationInstructions,
@@ -38,7 +41,7 @@ if TYPE_CHECKING:
     import aqt.main
 
 
-@dataclass(slots=True)
+@dataclass
 class _Session:
     deck_ids: list[int]
     snapshot: Any
@@ -49,6 +52,7 @@ class _Session:
     state: Any
     session_id: int
     lexeme_set: set[str]
+    settings: ConversationSettings
 
 
 class ConversationDialog(QDialog):
@@ -116,22 +120,27 @@ class ConversationDialog(QDialog):
             if not did:
                 return {"ok": False, "error": f"deck not found: {name}"}
             deck_ids.append(int(did))
-        snapshot = build_deck_snapshot(self.mw.col, [DeckId(d) for d in deck_ids])
+        settings = load_conversation_settings(self.mw.col)
+        snapshot = build_deck_snapshot(
+            self.mw.col,
+            [DeckId(d) for d in deck_ids],
+            lexeme_field_index=settings.lexeme_field_index,
+            gloss_field_index=settings.gloss_field_index,
+            max_items=settings.snapshot_max_items,
+        )
         planner = ConversationPlanner(snapshot)
         telemetry = ConversationTelemetryStore(self.mw.col)
         session_id = telemetry.start_session(list(snapshot.deck_ids))
         mastery_cache = telemetry.load_mastery_cache(
             [str(i.item_id) for i in snapshot.items]
         )
-        # dev convenience: read key from gpt-api.txt if present
-        try:
-            api_key = open("gpt-api.txt", encoding="utf-8").read().strip()
-        except Exception:
-            api_key = ""
+        api_key = resolve_openai_api_key()
         gateway: ConversationGateway | None = None
-        if api_key:
-            provider = OpenAIConversationProvider(api_key=api_key)
-            gateway = ConversationGateway(provider=provider)
+        if api_key and settings.provider == "openai":
+            provider = OpenAIConversationProvider(api_key=api_key, model=settings.model)
+            gateway = ConversationGateway(
+                provider=provider, max_rewrites=settings.max_rewrites
+            )
         topic_id = payload.get("topic_id")
         if not isinstance(topic_id, str):
             topic_id = None
@@ -148,6 +157,7 @@ class ConversationDialog(QDialog):
             state=state,
             session_id=session_id,
             lexeme_set={i.lexeme for i in snapshot.items},
+            settings=settings,
         )
         return {
             "ok": True,
@@ -166,7 +176,8 @@ class ConversationDialog(QDialog):
         confidence = payload.get("confidence")
         if confidence not in (None, "confident", "unsure", "guessing"):
             confidence = None
-        user_input = UserInput(text_ko=text, confidence=confidence)
+        redacted = redact_text(text, self._session.settings.redaction_level)
+        user_input = UserInput(text_ko=redacted.text, confidence=confidence)
         conv_state, constraints, instructions = self._session.planner.plan_turn(
             self._session.state, user_input, mastery=self._session.mastery_cache
         )
@@ -178,7 +189,7 @@ class ConversationDialog(QDialog):
             provide_micro_feedback=True,
             provide_suggested_english_intent=True,
             max_corrections=1,
-            safe_mode=True,
+            safe_mode=self._session.settings.safe_mode,
         )
         request = ConversationRequest(
             system_role=SYSTEM_ROLE,
@@ -248,20 +259,25 @@ class ConversationDialog(QDialog):
         intent = payload.get("intent_en")
         if not isinstance(intent, str) or not intent:
             return {"ok": False, "error": "intent_en required"}
-        # dev convenience key
-        try:
-            api_key = open("gpt-api.txt", encoding="utf-8").read().strip()
-        except Exception:
-            api_key = ""
-        if not api_key:
+        api_key = resolve_openai_api_key()
+        if not api_key or self._session.settings.provider != "openai":
             return {"ok": False, "error": "LLM provider not configured"}
-        provider = OpenAIPlanReplyProvider(api_key=api_key)
-        gateway = PlanReplyGateway(provider=provider)
+        provider = OpenAIPlanReplyProvider(
+            api_key=api_key, model=self._session.settings.model
+        )
+        gateway = PlanReplyGateway(
+            provider=provider, max_rewrites=self._session.settings.max_rewrites
+        )
         # reuse planner constraints for current state
         conv_state, constraints, instructions = self._session.planner.plan_turn(
             self._session.state,
             UserInput(text_ko=""),
             mastery=self._session.mastery_cache,
+        )
+        instructions = GenerationInstructions(
+            register=instructions.register,
+            tone=instructions.tone,
+            safe_mode=self._session.settings.safe_mode,
         )
         req = PlanReplyRequest(
             system_role=SYSTEM_ROLE,

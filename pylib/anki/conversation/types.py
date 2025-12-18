@@ -1,3 +1,6 @@
+# Copyright: Ankitects Pty Ltd and contributors
+# License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -8,7 +11,7 @@ JsonList = list[Any]
 ItemId = NewType("ItemId", str)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class MustTarget:
     id: ItemId
     type: Literal["vocab", "grammar", "collocation", "repair"]
@@ -16,19 +19,19 @@ class MustTarget:
     priority: float
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class GrammarPattern:
     id: ItemId
     pattern: str
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class ForbiddenConstraints:
     introduce_new_vocab: bool = True
     sentence_length_max: int = 20
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class LanguageConstraints:
     must_target: tuple[MustTarget, ...] = ()
     allowed_support: tuple[str, ...] = ()
@@ -36,7 +39,7 @@ class LanguageConstraints:
     forbidden: ForbiddenConstraints = field(default_factory=ForbiddenConstraints)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class GenerationInstructions:
     conversation_goal: str = "Continue the conversation naturally and keep it going."
     tone: str = "friendly"
@@ -48,20 +51,20 @@ class GenerationInstructions:
     safe_mode: bool = True
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class ConversationState:
     summary: str
     last_assistant_turn_ko: str = ""
     last_user_turn_ko: str = ""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class UserInput:
     text_ko: str
     confidence: Literal["confident", "unsure", "guessing"] | None = None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class ConversationRequest:
     system_role: str
     conversation_state: ConversationState
@@ -123,7 +126,7 @@ class MicroFeedbackDict(TypedDict):
     content_en: str
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class ConversationResponse:
     assistant_reply_ko: str
     follow_up_question_ko: str

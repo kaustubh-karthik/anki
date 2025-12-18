@@ -1,3 +1,6 @@
+# Copyright: Ankitects Pty Ltd and contributors
+# License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -16,7 +19,7 @@ class ConversationProvider(ABC):
         """Return a parsed JSON object matching ConversationResponse."""
 
 
-@dataclass(slots=True)
+@dataclass
 class OpenAIConversationProvider(ConversationProvider):
     api_key: str
     model: str = "gpt-5-nano"
@@ -28,7 +31,7 @@ class OpenAIConversationProvider(ConversationProvider):
         )
 
 
-@dataclass(slots=True)
+@dataclass
 class ConversationGateway:
     provider: ConversationProvider
     max_rewrites: int = 2

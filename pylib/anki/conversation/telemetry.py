@@ -1,3 +1,6 @@
+# Copyright: Ankitects Pty Ltd and contributors
+# License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
+
 from __future__ import annotations
 
 import time
@@ -63,7 +66,7 @@ create table if not exists elites_conversation_glossary (
         col.db.executemany(sql, [()])
 
 
-@dataclass(slots=True)
+@dataclass
 class ConversationTelemetryStore:
     col: Collection
 

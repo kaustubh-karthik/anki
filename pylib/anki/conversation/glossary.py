@@ -1,3 +1,6 @@
+# Copyright: Ankitects Pty Ltd and contributors
+# License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -8,7 +11,7 @@ from .snapshot import DeckSnapshot
 from .telemetry import _now_ms, ensure_conversation_schema
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class GlossaryEntry:
     lexeme: str
     gloss: str | None

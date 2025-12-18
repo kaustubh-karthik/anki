@@ -1,3 +1,6 @@
+# Copyright: Ankitects Pty Ltd and contributors
+# License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
+
 from __future__ import annotations
 
 import json
@@ -23,7 +26,7 @@ def _extract_text_fallback(data: dict[str, Any]) -> str:
     raise ValueError("unable to extract text from OpenAI response")
 
 
-@dataclass(slots=True)
+@dataclass
 class OpenAIResponsesJsonClient:
     api_key: str
     model: str

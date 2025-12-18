@@ -1,3 +1,6 @@
+# Copyright: Ankitects Pty Ltd and contributors
+# License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -5,7 +8,7 @@ from dataclasses import dataclass
 from .types import ItemId, MustTarget
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class Collocation:
     id: ItemId
     # tokens are stored in the surface forms to work with token-based validation

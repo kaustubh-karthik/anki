@@ -1,3 +1,6 @@
+# Copyright: Ankitects Pty Ltd and contributors
+# License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -6,7 +9,7 @@ from .types import ConversationRequest, ConversationResponse
 from .validation import tokenize_for_validation
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class ContractViolation:
     reason: str
 

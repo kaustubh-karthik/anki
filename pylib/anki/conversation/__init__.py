@@ -1,3 +1,6 @@
+# Copyright: Ankitects Pty Ltd and contributors
+# License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
+
 from __future__ import annotations
 
 from .collocations import DEFAULT_KO_COLLOCATIONS, select_collocation_targets
@@ -9,6 +12,7 @@ from .gateway import (
 )
 from .glossary import lookup_gloss, rebuild_glossary_from_snapshot
 from .grammar import DEFAULT_KO_GRAMMAR, select_grammar_patterns
+from .keys import read_api_key_file, resolve_openai_api_key
 from .openai import OpenAIResponsesJsonClient
 from .plan_reply import (
     FakePlanReplyProvider,
@@ -59,6 +63,8 @@ __all__ = [
     "PlanReplyRequest",
     "OpenAIPlanReplyProvider",
     "OpenAIResponsesJsonClient",
+    "read_api_key_file",
+    "resolve_openai_api_key",
     "apply_suggested_cards",
     "build_deck_snapshot",
     "compute_session_wrap",

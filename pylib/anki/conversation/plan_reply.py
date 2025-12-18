@@ -1,3 +1,6 @@
+# Copyright: Ankitects Pty Ltd and contributors
+# License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -14,7 +17,7 @@ from .types import (
 from .validation import validate_tokens
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class PlanReplyRequest:
     system_role: str
     conversation_state: ConversationState
@@ -58,7 +61,7 @@ class PlanReplyRequest:
         }
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class PlanReplyResponse:
     options_ko: tuple[str, ...]
     notes_en: str | None = None
@@ -105,7 +108,7 @@ class PlanReplyProvider(ABC):
         """Return a parsed JSON object matching PlanReplyResponse."""
 
 
-@dataclass(slots=True)
+@dataclass
 class PlanReplyGateway:
     provider: PlanReplyProvider
     max_rewrites: int = 2
@@ -181,7 +184,7 @@ def _rewrite_request(request: PlanReplyRequest, *, reason: str) -> PlanReplyRequ
     )
 
 
-@dataclass(slots=True)
+@dataclass
 class FakePlanReplyProvider(PlanReplyProvider):
     scripted: list[dict[str, Any]]
     i: int = 0
@@ -198,7 +201,7 @@ class FakePlanReplyProvider(PlanReplyProvider):
         return out
 
 
-@dataclass(slots=True)
+@dataclass
 class OpenAIPlanReplyProvider(PlanReplyProvider):
     api_key: str
     model: str = "gpt-5-nano"

@@ -1,3 +1,6 @@
+# Copyright: Ankitects Pty Ltd and contributors
+# License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -76,7 +79,7 @@ BASE_ALLOWED_SUPPORT: tuple[str, ...] = (
 )
 
 
-@dataclass(slots=True)
+@dataclass
 class PlannerState:
     conversation_summary: str
     last_assistant_turn_ko: str = ""

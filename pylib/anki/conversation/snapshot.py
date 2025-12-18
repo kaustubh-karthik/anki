@@ -1,3 +1,6 @@
+# Copyright: Ankitects Pty Ltd and contributors
+# License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
+
 from __future__ import annotations
 
 import re
@@ -13,7 +16,7 @@ from .types import ItemId
 _LEXEME_RE = re.compile(r"[A-Za-z0-9가-힣]+", re.UNICODE)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class SnapshotItem:
     item_id: ItemId
     lexeme: str
@@ -30,7 +33,7 @@ class SnapshotItem:
     gloss: str | None = None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class DeckSnapshot:
     deck_ids: tuple[int, ...]
     items: tuple[SnapshotItem, ...]

@@ -1,3 +1,6 @@
+# Copyright: Ankitects Pty Ltd and contributors
+# License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
+
 from __future__ import annotations
 
 import argparse
@@ -25,6 +28,7 @@ from .gateway import (
     OpenAIConversationProvider,
 )
 from .glossary import lookup_gloss, rebuild_glossary_from_snapshot
+from .keys import read_api_key_file
 from .plan_reply import (
     FakePlanReplyProvider,
     OpenAIPlanReplyProvider,
@@ -69,7 +73,7 @@ class FakeConversationProvider(ConversationProvider):
         return item
 
 
-@dataclass(slots=True)
+@dataclass
 class ScriptTurn:
     user_text_ko: str
     confidence: str | None = None
@@ -261,7 +265,11 @@ def _cmd_run(args: argparse.Namespace) -> None:
                     raise SystemExit("--provider-script must be a JSON list")
             provider = FakeConversationProvider(scripted=scripted)
         else:
-            api_key = Path(args.api_key_file).read_text(encoding="utf-8").strip()
+            api_key = read_api_key_file(args.api_key_file)
+            if not api_key:
+                raise SystemExit(
+                    "OpenAI API key missing; set OPENAI_API_KEY or provide --api-key-file"
+                )
             provider = OpenAIConversationProvider(api_key=api_key, model=args.model)
 
         settings = ConversationSettings(
@@ -472,7 +480,11 @@ def _cmd_plan_reply(args: argparse.Namespace) -> None:
                     raise SystemExit("--provider-script must be a JSON list")
             provider = FakePlanReplyProvider(scripted=scripted)
         else:
-            api_key = Path(args.api_key_file).read_text(encoding="utf-8").strip()
+            api_key = read_api_key_file(args.api_key_file)
+            if not api_key:
+                raise SystemExit(
+                    "OpenAI API key missing; set OPENAI_API_KEY or provide --api-key-file"
+                )
             provider = OpenAIPlanReplyProvider(api_key=api_key, model=args.model)
 
         gateway = PlanReplyGateway(provider=provider)  # type: ignore[arg-type]

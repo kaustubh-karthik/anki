@@ -1,12 +1,16 @@
+# Copyright: Ankitects Pty Ltd and contributors
+# License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
 
 from anki.collection import Collection
+from anki.decks import DeckId
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class CardSuggestion:
     front: str
     back: str | None
@@ -35,7 +39,7 @@ def apply_suggested_cards(
         note = col.new_note(notetype)
         note["Front"] = s.front
         note["Back"] = s.back or ""
-        col.add_note(note, deck_id=s.deck_id)
+        col.add_note(note, deck_id=DeckId(s.deck_id))
         if s.tags:
             col.tags.bulk_add([note.id], " ".join(s.tags))
         created.append(int(note.id))

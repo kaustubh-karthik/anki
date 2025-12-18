@@ -1,3 +1,6 @@
+// Copyright: Ankitects Pty Ltd and contributors
+// License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
+
 export type ConversationTurnResponse =
     | { ok: true; response: { assistant_reply_ko: string; follow_up_question_ko: string } }
     | { ok: false; error: string };

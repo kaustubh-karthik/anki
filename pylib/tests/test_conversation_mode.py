@@ -11,6 +11,7 @@ from anki.conversation.events import apply_missed_targets
 from anki.conversation.export import export_conversation_telemetry
 from anki.conversation.gateway import ConversationGateway, ConversationProvider
 from anki.conversation.glossary import lookup_gloss, rebuild_glossary_from_snapshot
+from anki.conversation.keys import read_api_key_file, resolve_openai_api_key
 from anki.conversation.plan_reply import (
     FakePlanReplyProvider,
     PlanReplyGateway,
@@ -258,6 +259,26 @@ def test_snapshot_strips_html_in_lexeme_field() -> None:
         assert any(item.lexeme == "의자" for item in snapshot.items)
     finally:
         col.close()
+
+
+def test_api_key_resolution_prefers_env_over_file(tmp_path) -> None:
+    import os
+
+    key_file = tmp_path / "key.txt"
+    key_file.write_text("sk-file\n", encoding="utf-8")
+    assert read_api_key_file(key_file) == "sk-file"
+
+    old = os.environ.get("OPENAI_API_KEY")
+    os.environ["OPENAI_API_KEY"] = " sk-env "
+    try:
+        assert resolve_openai_api_key(api_key_file=key_file) == "sk-env"
+    finally:
+        if old is None:
+            del os.environ["OPENAI_API_KEY"]
+        else:
+            os.environ["OPENAI_API_KEY"] = old
+
+    assert resolve_openai_api_key(api_key_file=key_file) == "sk-file"
 
 
 def test_snapshot_multi_deck_collation() -> None:
