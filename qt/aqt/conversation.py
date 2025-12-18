@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import copy
 import json
+from concurrent.futures import Future
 from dataclasses import dataclass
 from threading import Lock
 from typing import TYPE_CHECKING, Any
@@ -311,7 +312,11 @@ class ConversationDialog(QDialog):
                     job["result"] = result
                 self._busy = False
 
-        self.mw.taskman.run_in_background(run, on_done, uses_collection=False)
+        fut = self.mw.taskman.run_in_background(run, on_done, uses_collection=False)
+        with self._job_lock:
+            job = self._jobs.get(job_id)
+            if job is not None:
+                job["future"] = fut
         return {"ok": True, "job_id": job_id}
 
     def _prepare_turn_for_async(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -389,10 +394,43 @@ class ConversationDialog(QDialog):
             return {"ok": False, "error": "job_id required"}
         with self._job_lock:
             job = self._jobs.get(job_id)
+        if job is None:
+            return {"ok": False, "error": "unknown job"}
+
+        # If the background callback has not run yet, polling should still be able
+        # to complete the job once the future is ready.
+        if job.get("status") != "done":
+            fut = job.get("future")
+            if isinstance(fut, Future) and fut.done():
+                try:
+                    result = fut.result()
+                except Exception as e:
+                    result = {"ok": False, "error": str(e) or type(e).__name__}
+                if (
+                    job.get("kind") == "turn"
+                    and result.get("ok") is True
+                    and isinstance(result.get("response"), dict)
+                ):
+                    try:
+                        self._finalize_turn_for_async(
+                            turn_context=job.get("turn_context"),
+                            response_json=result["response"],
+                        )
+                    except Exception as e:
+                        result = {"ok": False, "error": str(e) or type(e).__name__}
+                with self._job_lock:
+                    job2 = self._jobs.get(job_id)
+                    if job2 is not None:
+                        job2["status"] = "done"
+                        job2["result"] = result
+                        self._busy = False
+            else:
+                return {"ok": True, "status": "pending"}
+
+        with self._job_lock:
+            job = self._jobs.get(job_id)
             if job is None:
                 return {"ok": False, "error": "unknown job"}
-            if job.get("status") != "done":
-                return {"ok": True, "status": "pending"}
             result = job.get("result", {"ok": False, "error": "missing result"})
             del self._jobs[job_id]
         return {"ok": True, "status": "done", "result": result}
