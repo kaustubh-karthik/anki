@@ -37,6 +37,11 @@ DEFAULT_KO_COLLOCATIONS: tuple[Collocation, ...] = (
         tokens=("하고", "싶어요"),
         triggers=("싶어요",),
     ),
+    Collocation(
+        id=ItemId("colloc:좀_더"),
+        tokens=("좀", "더"),
+        triggers=("더",),
+    ),
 )
 
 

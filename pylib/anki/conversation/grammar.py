@@ -56,6 +56,26 @@ DEFAULT_KO_GRAMMAR: tuple[GrammarItem, ...] = (
         pattern="~하고 싶어요",
         triggers=("싶어요",),
     ),
+    GrammarItem(
+        id=ItemId("gram:~때문에"),
+        pattern="N 때문에 ~",
+        triggers=("때문에",),
+    ),
+    GrammarItem(
+        id=ItemId("gram:n을_주세요"),
+        pattern="N을/를 주세요",
+        triggers=("주세요",),
+    ),
+    GrammarItem(
+        id=ItemId("gram:n이_좋아요"),
+        pattern="N이/가 좋아요",
+        triggers=("좋아요",),
+    ),
+    GrammarItem(
+        id=ItemId("gram:n이_싫어요"),
+        pattern="N이/가 싫어요",
+        triggers=("싫어요",),
+    ),
 )
 
 

@@ -287,12 +287,18 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 - Added a telemetry export bridge/UI (`conversation:export_telemetry`) that returns redacted JSON per saved redaction settings for easy debugging without manual DB inspection.
 - Ran `./ninja check` successfully after changes.
 
+### 2025-12-18 — Codex
+
+- Expanded built-in Korean grammar and collocation catalogs (including `~때문에` and `좀 더`) and added regression tests to keep planner output deterministic.
+- Recorded the decision to keep conversation mastery scoped (no FSRS scheduler modification) in `elites/docs/99_decisions_log.md`.
+- Ran `./ninja check` successfully after changes.
+
 ## Open Issues
 
 - [ ] Decide on default local dictionary source and licensing (offline-first, redistributable); user-supplied imports now supported.
 - [x] Clarify how planner handles multi-deck selection with conflicting templates (use field-name extraction, with per-note-type fallback).
-- [ ] Evaluate whether FSRS mastery signals should influence core scheduler or stay scoped to conversation mode.
-- [ ] Expand grammar/collocation catalog beyond the current minimal built-ins.
+- [x] Evaluate whether FSRS mastery signals should influence core scheduler or stay scoped to conversation mode (decision: keep scoped for now; see `elites/docs/99_decisions_log.md`).
+- [x] Expand grammar/collocation catalog beyond the current minimal built-ins.
 - [x] Centralize key resolution and keep `gpt-api.txt` as an optional dev convenience (do not persist secrets in config).
 - [x] Implement a real “Translate” assist (separate from `suggested_user_intent_en`) with a strict JSON contract + tests.
 
