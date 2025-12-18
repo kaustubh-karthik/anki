@@ -46,6 +46,36 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let glossFieldNamesText = "";
     let showExportTelemetry = false;
     let telemetryJson = "";
+    let inFlight = false;
+
+    function sleep(ms: number): Promise<void> {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    function bridgeCommandPromise<T>(command: string): Promise<T> {
+        return new Promise((resolve) =>
+            bridgeCommand<T>(command, (resp) => resolve(resp)),
+        );
+    }
+
+    async function waitForJob(jobId: string, timeoutMs = 120_000): Promise<any> {
+        const startedAt = Date.now();
+        for (;;) {
+            const resp: any = await bridgeCommandPromise(
+                buildConversationCommand("poll", { job_id: jobId }),
+            );
+            if (!resp?.ok) {
+                return resp;
+            }
+            if (resp.status === "done") {
+                return resp.result;
+            }
+            if (Date.now() - startedAt > timeoutMs) {
+                return { ok: false, error: "Timed out waiting for response." };
+            }
+            await sleep(250);
+        }
+    }
 
     onMount(() => {
         if (!bridgeCommandsAvailable()) {
@@ -92,27 +122,41 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     }
 
     function toggleTranslate(index: number, textKo: string): void {
-        error = null;
-        showTranslateByTurn = toggleByIndex(showTranslateByTurn, index);
-        if (translationByTurn[index] || !showTranslateByTurn[index]) {
-            return;
-        }
-        if (!bridgeCommandsAvailable()) {
-            return;
-        }
-        bridgeCommand(
-            buildConversationCommand("translate", { text_ko: textKo }),
-            (resp: any) => {
-                if (!resp?.ok) {
-                    error = resp?.error ?? "translate failed.";
+        void (async () => {
+            error = null;
+            showTranslateByTurn = toggleByIndex(showTranslateByTurn, index);
+            if (translationByTurn[index] || !showTranslateByTurn[index]) {
+                return;
+            }
+            if (!bridgeCommandsAvailable()) {
+                return;
+            }
+            if (inFlight) {
+                error = "Busy.";
+                return;
+            }
+            inFlight = true;
+            try {
+                const startResp: any = await bridgeCommandPromise(
+                    buildConversationCommand("translate_async", { text_ko: textKo }),
+                );
+                if (!startResp?.ok) {
+                    error = startResp?.error ?? "translate failed.";
+                    return;
+                }
+                const result = await waitForJob(startResp.job_id);
+                if (!result?.ok) {
+                    error = result?.error ?? "translate failed.";
                     return;
                 }
                 translationByTurn = {
                     ...translationByTurn,
-                    [index]: resp.translation_en ?? "",
+                    [index]: result.translation_en ?? "",
                 };
-            },
-        );
+            } finally {
+                inFlight = false;
+            }
+        })();
     }
 
     function practiceTargets(index: number): void {
@@ -178,21 +222,41 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     }
 
     function send(): void {
-        error = null;
-        if (!started) {
-            error = "Start a session first.";
-            return;
-        }
-        const text = message.trim();
-        if (!text) {
-            return;
-        }
-        message = "";
-        bridgeCommand(
-            buildConversationCommand("turn", { text_ko: text, confidence }),
-            (resp: ConversationTurnResponse) => {
-                if (!resp?.ok) {
-                    error = resp?.error ?? "Turn failed.";
+        void (async () => {
+            error = null;
+            if (!started) {
+                error = "Start a session first.";
+                return;
+            }
+            const text = message.trim();
+            if (!text) {
+                return;
+            }
+            if (!bridgeCommandsAvailable()) {
+                return;
+            }
+            if (inFlight) {
+                error = "Busy.";
+                return;
+            }
+            message = "";
+            inFlight = true;
+            try {
+                const startResp: any = await bridgeCommandPromise(
+                    buildConversationCommand("turn_async", {
+                        text_ko: text,
+                        confidence,
+                    }),
+                );
+                if (!startResp?.ok) {
+                    error = startResp?.error ?? "Turn failed.";
+                    return;
+                }
+                const result: ConversationTurnResponse = await waitForJob(
+                    startResp.job_id,
+                );
+                if (!result?.ok) {
+                    error = (result as any)?.error ?? "Turn failed.";
                     return;
                 }
                 turns = [
@@ -200,11 +264,13 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     {
                         user_text_ko: text,
                         confidence,
-                        assistant: resp.response,
+                        assistant: (result as any).response,
                     },
                 ];
-            },
-        );
+            } finally {
+                inFlight = false;
+            }
+        })();
     }
 
     function gloss(lexeme: string): void {
@@ -247,22 +313,39 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     }
 
     function planReply(): void {
-        error = null;
-        replyOptions = [];
-        const intent = intentEn.trim();
-        if (!intent) {
-            return;
-        }
-        bridgeCommand(
-            buildConversationCommand("plan_reply", { intent_en: intent }),
-            (resp: any) => {
-                if (!resp?.ok) {
-                    error = resp?.error ?? "plan-reply failed.";
+        void (async () => {
+            error = null;
+            replyOptions = [];
+            const intent = intentEn.trim();
+            if (!intent) {
+                return;
+            }
+            if (!bridgeCommandsAvailable()) {
+                return;
+            }
+            if (inFlight) {
+                error = "Busy.";
+                return;
+            }
+            inFlight = true;
+            try {
+                const startResp: any = await bridgeCommandPromise(
+                    buildConversationCommand("plan_reply_async", { intent_en: intent }),
+                );
+                if (!startResp?.ok) {
+                    error = startResp?.error ?? "plan-reply failed.";
                     return;
                 }
-                replyOptions = resp.plan?.options_ko ?? [];
-            },
-        );
+                const result = await waitForJob(startResp.job_id);
+                if (!result?.ok) {
+                    error = result?.error ?? "plan-reply failed.";
+                    return;
+                }
+                replyOptions = result.plan?.options_ko ?? [];
+            } finally {
+                inFlight = false;
+            }
+        })();
     }
 
     function usePlannedReply(textKo: string): void {
@@ -317,7 +400,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         </select>
         <label for="topic">Topic</label>
         <input id="topic" bind:value={topicId} />
-        <button on:click={start}>Start</button>
+        <button on:click={start} disabled={inFlight}>Start</button>
     </div>
 
     <div class="row">
@@ -598,9 +681,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         <input
             placeholder="Type Korean…"
             bind:value={message}
+            disabled={inFlight}
             on:keydown={(e) => e.key === "Enter" && send()}
         />
-        <button on:click={send}>Send</button>
+        <button on:click={send} disabled={inFlight}>Send</button>
     </div>
 
     <div class="row">

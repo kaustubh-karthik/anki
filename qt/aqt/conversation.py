@@ -5,7 +5,11 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from threading import Lock
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
+
+import requests
 
 import aqt
 from anki.conversation import (
@@ -73,6 +77,10 @@ class ConversationDialog(QDialog):
         super().__init__(mw, Qt.WindowType.Window)
         self.mw = mw
         self._session: _Session | None = None
+        self._job_lock = Lock()
+        self._busy = False
+        self._jobs: dict[str, dict[str, Any]] = {}
+        self._queued_events: list[dict[str, Any]] = []
         disable_help_button(self)
         restoreGeom(self, self.TITLE, default_size=(900, 800))
         self.setWindowTitle("Conversation Practice")
@@ -97,49 +105,72 @@ class ConversationDialog(QDialog):
 
     def _on_bridge_cmd(self, cmd: str) -> Any:
         # Commands are string-based; return JSON-serializable values.
-        result: Any = None
-        if cmd == "conversation:init":
-            result = {"ok": True}
-        elif cmd == "conversation:decks":
-            result = {"ok": True, "decks": self.mw.col.decks.all_names()}
-        elif cmd == "conversation:get_settings":
-            result = self._get_settings()
-        elif cmd.startswith("conversation:set_settings:"):
-            payload = json.loads(cmd.split(":", 2)[2])
-            result = self._set_settings(payload)
-        elif cmd == "conversation:end":
-            result = self._end_session()
-        elif cmd.startswith("conversation:export_telemetry:"):
-            payload = json.loads(cmd.split(":", 2)[2])
-            result = self._export_telemetry(payload)
-        elif cmd == "conversation:wrap":
-            result = self._get_wrap()
-        elif cmd.startswith("conversation:gloss:"):
-            lexeme = cmd.split(":", 2)[2]
-            entry = lookup_gloss(self.mw.col, lexeme)
-            if entry is None:
-                result = {"found": False}
-            else:
-                result = {"found": True, "lexeme": entry.lexeme, "gloss": entry.gloss}
-        elif cmd.startswith("conversation:start:"):
-            payload = json.loads(cmd.split(":", 2)[2])
-            result = self._start_session(payload)
-        elif cmd.startswith("conversation:turn:"):
-            payload = json.loads(cmd.split(":", 2)[2])
-            result = self._run_turn(payload)
-        elif cmd.startswith("conversation:event:"):
-            payload = json.loads(cmd.split(":", 2)[2])
-            result = self._log_event(payload)
-        elif cmd.startswith("conversation:apply_suggestions:"):
-            payload = json.loads(cmd.split(":", 2)[2])
-            result = self._apply_suggestions(payload)
-        elif cmd.startswith("conversation:plan_reply:"):
-            payload = json.loads(cmd.split(":", 2)[2])
-            result = self._plan_reply(payload)
-        elif cmd.startswith("conversation:translate:"):
-            payload = json.loads(cmd.split(":", 2)[2])
-            result = self._translate(payload)
-        return result
+        # Never raise, or the webview will receive invalid JSON and lock up.
+        try:
+            result: Any = None
+            if cmd == "conversation:init":
+                result = {"ok": True}
+            elif cmd == "conversation:decks":
+                names = [
+                    d.name for d in self.mw.col.decks.all_names_and_ids() if d.name
+                ]
+                result = {"ok": True, "decks": names}
+            elif cmd == "conversation:get_settings":
+                result = self._get_settings()
+            elif cmd.startswith("conversation:set_settings:"):
+                payload = json.loads(cmd.split(":", 2)[2])
+                result = self._set_settings(payload)
+            elif cmd == "conversation:end":
+                result = self._end_session()
+            elif cmd.startswith("conversation:export_telemetry:"):
+                payload = json.loads(cmd.split(":", 2)[2])
+                result = self._export_telemetry(payload)
+            elif cmd == "conversation:wrap":
+                result = self._get_wrap()
+            elif cmd.startswith("conversation:gloss:"):
+                lexeme = cmd.split(":", 2)[2]
+                entry = lookup_gloss(self.mw.col, lexeme)
+                if entry is None:
+                    result = {"found": False}
+                else:
+                    result = {
+                        "found": True,
+                        "lexeme": entry.lexeme,
+                        "gloss": entry.gloss,
+                    }
+            elif cmd.startswith("conversation:start:"):
+                payload = json.loads(cmd.split(":", 2)[2])
+                result = self._start_session(payload)
+            elif cmd.startswith("conversation:turn_async:"):
+                payload = json.loads(cmd.split(":", 2)[2])
+                result = self._start_job(kind="turn", payload=payload)
+            elif cmd.startswith("conversation:translate_async:"):
+                payload = json.loads(cmd.split(":", 2)[2])
+                result = self._start_job(kind="translate", payload=payload)
+            elif cmd.startswith("conversation:plan_reply_async:"):
+                payload = json.loads(cmd.split(":", 2)[2])
+                result = self._start_job(kind="plan_reply", payload=payload)
+            elif cmd.startswith("conversation:poll:"):
+                payload = json.loads(cmd.split(":", 2)[2])
+                result = self._poll_job(payload)
+            elif cmd.startswith("conversation:turn:"):
+                payload = json.loads(cmd.split(":", 2)[2])
+                result = self._run_turn(payload)
+            elif cmd.startswith("conversation:event:"):
+                payload = json.loads(cmd.split(":", 2)[2])
+                result = self._log_event(payload)
+            elif cmd.startswith("conversation:apply_suggestions:"):
+                payload = json.loads(cmd.split(":", 2)[2])
+                result = self._apply_suggestions(payload)
+            elif cmd.startswith("conversation:plan_reply:"):
+                payload = json.loads(cmd.split(":", 2)[2])
+                result = self._plan_reply(payload)
+            elif cmd.startswith("conversation:translate:"):
+                payload = json.loads(cmd.split(":", 2)[2])
+                result = self._translate(payload)
+            return result
+        except Exception as e:
+            return {"ok": False, "error": str(e) or type(e).__name__}
 
     def _start_session(self, payload: dict[str, Any]) -> dict[str, Any]:
         deck_names = payload.get("decks") or []
@@ -207,6 +238,85 @@ class ConversationDialog(QDialog):
             "session_id": session_id,
             "llm_enabled": gateway is not None,
         }
+
+    def _start_job(self, *, kind: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if kind not in ("turn", "translate", "plan_reply"):
+            return {"ok": False, "error": "invalid job kind"}
+        if self._session is None:
+            return {"ok": False, "error": "session not started"}
+
+        with self._job_lock:
+            if self._busy:
+                return {"ok": False, "error": "busy"}
+            self._busy = True
+            job_id = str(uuid4())
+            self._jobs[job_id] = {"status": "pending", "kind": kind}
+
+        def run() -> dict[str, Any]:
+            try:
+                self._flush_queued_events()
+                if kind == "turn":
+                    return self._run_turn(payload)
+                if kind == "translate":
+                    return self._translate(payload)
+                if kind == "plan_reply":
+                    return self._plan_reply(payload)
+                return {"ok": False, "error": "invalid job kind"}
+            except requests.exceptions.Timeout:
+                return {"ok": False, "error": "request timed out"}
+            except requests.exceptions.RequestException as e:
+                return {"ok": False, "error": f"network error: {e}"}
+            except Exception as e:
+                return {"ok": False, "error": str(e) or type(e).__name__}
+
+        def on_done(fut: Any) -> None:
+            try:
+                result = fut.result()
+            except Exception as e:
+                result = {"ok": False, "error": str(e) or type(e).__name__}
+            with self._job_lock:
+                job = self._jobs.get(job_id)
+                if job is not None:
+                    job["status"] = "done"
+                    job["result"] = result
+                self._busy = False
+
+        self.mw.taskman.run_in_background(run, on_done)
+        return {"ok": True, "job_id": job_id}
+
+    def _poll_job(self, payload: dict[str, Any]) -> dict[str, Any]:
+        job_id = payload.get("job_id")
+        if not isinstance(job_id, str) or not job_id:
+            return {"ok": False, "error": "job_id required"}
+        with self._job_lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                return {"ok": False, "error": "unknown job"}
+            if job.get("status") != "done":
+                return {"ok": True, "status": "pending"}
+            result = job.get("result", {"ok": False, "error": "missing result"})
+            del self._jobs[job_id]
+        return {"ok": True, "status": "done", "result": result}
+
+    def _flush_queued_events(self) -> None:
+        if self._session is None:
+            return
+        while True:
+            with self._job_lock:
+                if not self._queued_events:
+                    return
+                payload = self._queued_events.pop(0)
+            try:
+                record_event_from_payload(
+                    telemetry=self._session.telemetry,
+                    mastery_cache=self._session.mastery_cache,
+                    session_id=self._session.session_id,
+                    turn_index=self._session.state.turn_index,
+                    payload=payload,
+                )
+            except Exception:
+                # ignore bad queued events
+                pass
 
     def _get_settings(self) -> dict[str, Any]:
         settings = load_conversation_settings(self.mw.col)
@@ -356,6 +466,12 @@ class ConversationDialog(QDialog):
     def _log_event(self, payload: dict[str, Any]) -> dict[str, Any]:
         if self._session is None:
             return {"ok": False, "error": "session not started"}
+        with self._job_lock:
+            if self._busy:
+                if isinstance(payload, dict):
+                    self._queued_events.append(payload)
+                return {"ok": True, "queued": True}
+        self._flush_queued_events()
         try:
             record_event_from_payload(
                 telemetry=self._session.telemetry,

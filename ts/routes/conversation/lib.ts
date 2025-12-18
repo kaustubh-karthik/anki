@@ -24,13 +24,17 @@ export function buildConversationCommand(
         | "start"
         | "end"
         | "turn"
+        | "turn_async"
         | "gloss"
         | "event"
         | "wrap"
         | "export_telemetry"
         | "apply_suggestions"
         | "plan_reply"
-        | "translate",
+        | "plan_reply_async"
+        | "translate"
+        | "translate_async"
+        | "poll",
     payload?: unknown,
 ): string {
     if (kind === "init") {
@@ -74,6 +78,18 @@ export function buildConversationCommand(
     if (kind === "translate") {
         const json = payload ? JSON.stringify(payload) : "{}";
         return `conversation:translate:${json}`;
+    }
+    if (kind === "translate_async") {
+        const json = payload ? JSON.stringify(payload) : "{}";
+        return `conversation:translate_async:${json}`;
+    }
+    if (kind === "plan_reply_async") {
+        const json = payload ? JSON.stringify(payload) : "{}";
+        return `conversation:plan_reply_async:${json}`;
+    }
+    if (kind === "poll") {
+        const json = payload ? JSON.stringify(payload) : "{}";
+        return `conversation:poll:${json}`;
     }
     const json = payload ? JSON.stringify(payload) : "{}";
     return `conversation:${kind}:${json}`;

@@ -43,6 +43,12 @@ test("buildConversationCommand turn", () => {
     );
 });
 
+test("buildConversationCommand turn_async", () => {
+    expect(buildConversationCommand("turn_async", { text_ko: "의자", confidence: null })).toContain(
+        "conversation:turn_async:",
+    );
+});
+
 test("buildConversationCommand wrap", () => {
     expect(buildConversationCommand("wrap")).toBe("conversation:wrap");
 });
@@ -51,6 +57,10 @@ test("buildConversationCommand translate", () => {
     expect(buildConversationCommand("translate", { text_ko: "의자" })).toContain(
         "conversation:translate:",
     );
+});
+
+test("buildConversationCommand poll", () => {
+    expect(buildConversationCommand("poll", { job_id: "abc" })).toContain("conversation:poll:");
 });
 
 test("tokenizeForUi splits Korean + punctuation + spaces", () => {
