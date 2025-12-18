@@ -236,6 +236,12 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 - Wired the local provider into `anki-conversation` (`--provider local`) and the desktop bridge (when `ConversationSettings.provider == "local"`), enabling local-only smoke testing.
 - Added unit coverage to ensure the local provider obeys safe-mode constraints, and verified with `./ninja check`.
 
+### 2025-12-18 — Codex
+
+- Updated the desktop `conversation` page to store assistant responses as structured per-turn objects, enabling per-message controls without losing context.
+- Added progressive disclosure UI controls under each assistant turn: Hint (shows `targets_used`/`unexpected_tokens`), Explain (shows `micro_feedback`), Translate (currently surfaces `suggested_user_intent_en`), plus Practice-targets and message-level Mark-confusing events.
+- Ran `./ninja check` successfully after UI changes.
+
 ## Open Issues
 
 - [ ] Decide on default local dictionary source and licensing (offline-first, redistributable).
@@ -243,6 +249,7 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 - [ ] Evaluate whether FSRS mastery signals should influence core scheduler or stay scoped to conversation mode.
 - [ ] Expand grammar/collocation catalog beyond the current minimal built-ins.
 - [x] Centralize key resolution and keep `gpt-api.txt` as an optional dev convenience (do not persist secrets in config).
+- [ ] Implement a real “Translate” assist (separate from `suggested_user_intent_en`) with a strict JSON contract + tests.
 
 ## Agent Instructions (MANDATORY)
 
