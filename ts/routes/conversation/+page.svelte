@@ -3,6 +3,7 @@ Copyright: Ankitects Pty Ltd and contributors
 License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 -->
 <script lang="ts">
+    import { onMount } from "svelte";
     import { bridgeCommand, bridgeCommandsAvailable } from "@tslib/bridgecommand";
     import {
         buildConversationCommand,
@@ -11,7 +12,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     } from "./lib";
 
     let started = false;
-    let decksText = "Korean";
+    let deckOptions: string[] = [];
+    let selectedDecks: string[] = ["Korean"];
     let topicId = "room_objects";
     let message = "";
     type Confidence = "confident" | "unsure" | "guessing" | null;
@@ -34,6 +36,21 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let intentEn = "";
     let replyOptions: string[] = [];
     let applyDeck = "Korean";
+
+    onMount(() => {
+        if (!bridgeCommandsAvailable()) {
+            return;
+        }
+        bridgeCommand(buildConversationCommand("decks"), (resp: any) => {
+            if (!resp?.ok || !Array.isArray(resp.decks)) {
+                return;
+            }
+            deckOptions = resp.decks.filter((d: unknown) => typeof d === "string");
+            if (!selectedDecks.length && deckOptions.length) {
+                selectedDecks = [deckOptions[0]];
+            }
+        });
+    });
 
     function sendEvent(payload: Record<string, unknown>): void {
         if (!bridgeCommandsAvailable()) {
@@ -103,10 +120,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             error = "Bridge commands not available.";
             return;
         }
-        const decks = decksText
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean);
+        const decks = selectedDecks.filter(Boolean);
+        if (!decks.length) {
+            error = "Select at least one deck.";
+            return;
+        }
         bridgeCommand(
             buildConversationCommand("start", { decks, topic_id: topicId || null }),
             (resp: { ok: boolean; error?: string }) => {
@@ -220,8 +238,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     {/if}
 
     <div class="row">
-        <label for="decks">Decks (comma-separated)</label>
-        <input id="decks" bind:value={decksText} />
+        <label for="decks">Decks</label>
+        <select id="decks" multiple bind:value={selectedDecks} size="6">
+            {#each deckOptions as d}
+                <option value={d}>{d}</option>
+            {/each}
+        </select>
         <label for="topic">Topic</label>
         <input id="topic" bind:value={topicId} />
         <button on:click={start}>Start</button>

@@ -9,6 +9,10 @@ test("buildConversationCommand init", () => {
     expect(buildConversationCommand("init")).toBe("conversation:init");
 });
 
+test("buildConversationCommand decks", () => {
+    expect(buildConversationCommand("decks")).toBe("conversation:decks");
+});
+
 test("buildConversationCommand gloss", () => {
     expect(buildConversationCommand("gloss", { lexeme: "의자" })).toBe("conversation:gloss:의자");
 });

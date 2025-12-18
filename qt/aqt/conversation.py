@@ -89,6 +89,8 @@ class ConversationDialog(QDialog):
         result: Any = None
         if cmd == "conversation:init":
             result = {"ok": True}
+        elif cmd == "conversation:decks":
+            result = {"ok": True, "decks": self.mw.col.decks.all_names()}
         elif cmd == "conversation:wrap":
             result = self._get_wrap()
         elif cmd.startswith("conversation:gloss:"):

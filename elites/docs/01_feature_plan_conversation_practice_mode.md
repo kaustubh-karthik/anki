@@ -253,6 +253,11 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 - Added a deterministic offline fallback (`LocalTranslateProvider`) so Translate can be exercised without any API key, and added unit coverage.
 - Ran `./ninja check` successfully after changes.
 
+### 2025-12-18 — Codex
+
+- Replaced comma-separated deck input with a proper deck picker: added a `conversation:decks` bridge command and a multi-select UI in the conversation page.
+- Ran `./ninja check` successfully after UI changes.
+
 ## Open Issues
 
 - [ ] Decide on default local dictionary source and licensing (offline-first, redistributable).

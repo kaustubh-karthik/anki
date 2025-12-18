@@ -18,6 +18,7 @@ export type ConversationTurnResponse =
 export function buildConversationCommand(
     kind:
         | "init"
+        | "decks"
         | "start"
         | "turn"
         | "gloss"
@@ -30,6 +31,9 @@ export function buildConversationCommand(
 ): string {
     if (kind === "init") {
         return "conversation:init";
+    }
+    if (kind === "decks") {
+        return "conversation:decks";
     }
     if (kind === "gloss") {
         const lexeme = (payload as any)?.lexeme;
