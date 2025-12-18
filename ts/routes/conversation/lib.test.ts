@@ -23,6 +23,12 @@ test("buildConversationCommand wrap", () => {
     expect(buildConversationCommand("wrap")).toBe("conversation:wrap");
 });
 
+test("buildConversationCommand translate", () => {
+    expect(buildConversationCommand("translate", { text_ko: "의자" })).toContain(
+        "conversation:translate:",
+    );
+});
+
 test("tokenizeForUi splits Korean + punctuation + spaces", () => {
     const toks = tokenizeForUi("응, 거기에 있어.");
     expect(toks.map((t) => [t.text, t.kind])).toEqual([

@@ -24,7 +24,8 @@ export function buildConversationCommand(
         | "event"
         | "wrap"
         | "apply_suggestions"
-        | "plan_reply",
+        | "plan_reply"
+        | "translate",
     payload?: unknown,
 ): string {
     if (kind === "init") {
@@ -47,6 +48,10 @@ export function buildConversationCommand(
     if (kind === "plan_reply") {
         const json = payload ? JSON.stringify(payload) : "{}";
         return `conversation:plan_reply:${json}`;
+    }
+    if (kind === "translate") {
+        const json = payload ? JSON.stringify(payload) : "{}";
+        return `conversation:translate:${json}`;
     }
     const json = payload ? JSON.stringify(payload) : "{}";
     return `conversation:${kind}:${json}`;

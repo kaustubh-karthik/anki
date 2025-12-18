@@ -247,6 +247,12 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 - Added “repair move” quick buttons (clarify meaning / simplify / confirm) that log `repair_move` telemetry and optionally prefill the input to keep flow.
 - Ran `./ninja check` successfully after UI changes.
 
+### 2025-12-18 — Codex
+
+- Implemented a real Translate assist with a strict JSON contract (`pylib/anki/conversation/translate.py`) and wired it to the desktop bridge (`conversation:translate`) and the Svelte conversation page.
+- Added a deterministic offline fallback (`LocalTranslateProvider`) so Translate can be exercised without any API key, and added unit coverage.
+- Ran `./ninja check` successfully after changes.
+
 ## Open Issues
 
 - [ ] Decide on default local dictionary source and licensing (offline-first, redistributable).
@@ -254,7 +260,7 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 - [ ] Evaluate whether FSRS mastery signals should influence core scheduler or stay scoped to conversation mode.
 - [ ] Expand grammar/collocation catalog beyond the current minimal built-ins.
 - [x] Centralize key resolution and keep `gpt-api.txt` as an optional dev convenience (do not persist secrets in config).
-- [ ] Implement a real “Translate” assist (separate from `suggested_user_intent_en`) with a strict JSON contract + tests.
+- [x] Implement a real “Translate” assist (separate from `suggested_user_intent_en`) with a strict JSON contract + tests.
 
 ## Agent Instructions (MANDATORY)
 

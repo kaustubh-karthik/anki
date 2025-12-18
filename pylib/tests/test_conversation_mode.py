@@ -31,6 +31,11 @@ from anki.conversation.snapshot import build_deck_snapshot
 from anki.conversation.suggest import apply_suggested_cards, suggestions_from_wrap
 from anki.conversation.telemetry import ConversationTelemetryStore
 from anki.conversation.topics import get_topic
+from anki.conversation.translate import (
+    LocalTranslateProvider,
+    TranslateGateway,
+    TranslateRequest,
+)
 from anki.conversation.types import (
     ConversationRequest,
     ConversationState,
@@ -334,6 +339,14 @@ def test_local_conversation_provider_obeys_safe_mode_budget() -> None:
     response = gateway.run_turn(request=request)
     assert response.unexpected_tokens == ()
     assert "의자" in response.assistant_reply_ko
+
+
+def test_local_translate_provider_is_deterministic() -> None:
+    gateway = TranslateGateway(provider=LocalTranslateProvider())
+    resp = gateway.run(
+        request=TranslateRequest(system_role="x", text_ko="의자 있어요.")
+    )
+    assert resp.translation_en
 
 
 def test_snapshot_extracts_lexemes_from_selected_deck() -> None:

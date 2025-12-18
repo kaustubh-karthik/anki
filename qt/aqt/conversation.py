@@ -13,10 +13,14 @@ from anki.conversation import (
     ConversationPlanner,
     ConversationTelemetryStore,
     LocalConversationProvider,
+    LocalTranslateProvider,
     OpenAIConversationProvider,
     OpenAIPlanReplyProvider,
+    OpenAITranslateProvider,
     PlanReplyGateway,
     PlanReplyRequest,
+    TranslateGateway,
+    TranslateRequest,
     apply_suggested_cards,
     build_deck_snapshot,
     compute_session_wrap,
@@ -82,32 +86,37 @@ class ConversationDialog(QDialog):
 
     def _on_bridge_cmd(self, cmd: str) -> Any:
         # Commands are string-based; return JSON-serializable values.
+        result: Any = None
         if cmd == "conversation:init":
-            return {"ok": True}
-        if cmd.startswith("conversation:gloss:"):
+            result = {"ok": True}
+        elif cmd == "conversation:wrap":
+            result = self._get_wrap()
+        elif cmd.startswith("conversation:gloss:"):
             lexeme = cmd.split(":", 2)[2]
             entry = lookup_gloss(self.mw.col, lexeme)
             if entry is None:
-                return {"found": False}
-            return {"found": True, "lexeme": entry.lexeme, "gloss": entry.gloss}
-        if cmd.startswith("conversation:start:"):
+                result = {"found": False}
+            else:
+                result = {"found": True, "lexeme": entry.lexeme, "gloss": entry.gloss}
+        elif cmd.startswith("conversation:start:"):
             payload = json.loads(cmd.split(":", 2)[2])
-            return self._start_session(payload)
-        if cmd.startswith("conversation:turn:"):
+            result = self._start_session(payload)
+        elif cmd.startswith("conversation:turn:"):
             payload = json.loads(cmd.split(":", 2)[2])
-            return self._run_turn(payload)
-        if cmd.startswith("conversation:event:"):
+            result = self._run_turn(payload)
+        elif cmd.startswith("conversation:event:"):
             payload = json.loads(cmd.split(":", 2)[2])
-            return self._log_event(payload)
-        if cmd == "conversation:wrap":
-            return self._get_wrap()
-        if cmd.startswith("conversation:apply_suggestions:"):
+            result = self._log_event(payload)
+        elif cmd.startswith("conversation:apply_suggestions:"):
             payload = json.loads(cmd.split(":", 2)[2])
-            return self._apply_suggestions(payload)
-        if cmd.startswith("conversation:plan_reply:"):
+            result = self._apply_suggestions(payload)
+        elif cmd.startswith("conversation:plan_reply:"):
             payload = json.loads(cmd.split(":", 2)[2])
-            return self._plan_reply(payload)
-        return None
+            result = self._plan_reply(payload)
+        elif cmd.startswith("conversation:translate:"):
+            payload = json.loads(cmd.split(":", 2)[2])
+            result = self._translate(payload)
+        return result
 
     def _start_session(self, payload: dict[str, Any]) -> dict[str, Any]:
         deck_names = payload.get("decks") or []
@@ -297,6 +306,31 @@ class ConversationDialog(QDialog):
         )
         resp = gateway.run(request=req)
         return {"ok": True, "plan": resp.to_json_dict()}
+
+    def _translate(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if self._session is None:
+            return {"ok": False, "error": "session not started"}
+        text = payload.get("text_ko")
+        if not isinstance(text, str) or not text.strip():
+            return {"ok": False, "error": "text_ko required"}
+
+        provider: object
+        if self._session.settings.provider == "local":
+            provider = LocalTranslateProvider()
+        elif self._session.settings.provider == "openai":
+            api_key = resolve_openai_api_key()
+            if not api_key:
+                return {"ok": False, "error": "OpenAI API key missing"}
+            provider = OpenAITranslateProvider(
+                api_key=api_key, model=self._session.settings.model
+            )
+        else:
+            return {"ok": False, "error": "translate provider not configured"}
+
+        gateway = TranslateGateway(provider=provider)  # type: ignore[arg-type]
+        req = TranslateRequest(system_role=SYSTEM_ROLE, text_ko=text)
+        resp = gateway.run(request=req)
+        return {"ok": True, "translation_en": resp.translation_en}
 
 
 def open_conversation_practice() -> None:

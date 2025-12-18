@@ -35,6 +35,13 @@ from .settings import (
 from .snapshot import DeckSnapshot, build_deck_snapshot
 from .suggest import apply_suggested_cards, suggestions_from_wrap
 from .telemetry import ConversationTelemetryStore
+from .translate import (
+    LocalTranslateProvider,
+    OpenAITranslateProvider,
+    TranslateGateway,
+    TranslateRequest,
+    TranslateResponse,
+)
 from .types import (
     ConversationRequest,
     ConversationResponse,
@@ -83,5 +90,10 @@ __all__ = [
     "select_collocation_targets",
     "select_grammar_patterns",
     "suggestions_from_wrap",
+    "LocalTranslateProvider",
+    "OpenAITranslateProvider",
+    "TranslateGateway",
+    "TranslateRequest",
+    "TranslateResponse",
 ]
 from .contract import check_response_against_request

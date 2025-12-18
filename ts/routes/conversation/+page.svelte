@@ -27,7 +27,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let turns: Turn[] = [];
     let showHintByTurn: Record<number, boolean> = {};
     let showExplainByTurn: Record<number, boolean> = {};
-    let showIntentByTurn: Record<number, boolean> = {};
+    let showTranslateByTurn: Record<number, boolean> = {};
+    let translationByTurn: Record<number, string> = {};
     let lastGloss: string | null = null;
     let error: string | null = null;
     let intentEn = "";
@@ -46,6 +47,30 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         index: number,
     ): Record<number, boolean> {
         return { ...map, [index]: !map[index] };
+    }
+
+    function toggleTranslate(index: number, textKo: string): void {
+        error = null;
+        showTranslateByTurn = toggleByIndex(showTranslateByTurn, index);
+        if (translationByTurn[index] || !showTranslateByTurn[index]) {
+            return;
+        }
+        if (!bridgeCommandsAvailable()) {
+            return;
+        }
+        bridgeCommand(
+            buildConversationCommand("translate", { text_ko: textKo }),
+            (resp: any) => {
+                if (!resp?.ok) {
+                    error = resp?.error ?? "translate failed.";
+                    return;
+                }
+                translationByTurn = {
+                    ...translationByTurn,
+                    [index]: resp.translation_en ?? "",
+                };
+            },
+        );
     }
 
     function practiceTargets(index: number): void {
@@ -93,7 +118,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 turns = [];
                 showHintByTurn = {};
                 showExplainByTurn = {};
-                showIntentByTurn = {};
+                showTranslateByTurn = {};
+                translationByTurn = {};
             },
         );
     }
@@ -261,7 +287,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     <button
                         type="button"
                         on:click={() =>
-                            (showIntentByTurn = toggleByIndex(showIntentByTurn, idx))}
+                            toggleTranslate(idx, turn.assistant.assistant_reply_ko)}
                     >
                         Translate
                     </button>
@@ -300,15 +326,21 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                         {:else}
                             <div>(no feedback)</div>
                         {/if}
+                        {#if turn.assistant.suggested_user_intent_en}
+                            <div>
+                                Suggested intent (EN):
+                                {turn.assistant.suggested_user_intent_en}
+                            </div>
+                        {/if}
                     </div>
                 {/if}
 
-                {#if showIntentByTurn[idx]}
+                {#if showTranslateByTurn[idx]}
                     <div class="gloss">
-                        {#if turn.assistant.suggested_user_intent_en}
-                            <div>{turn.assistant.suggested_user_intent_en}</div>
+                        {#if translationByTurn[idx]}
+                            <div>{translationByTurn[idx]}</div>
                         {:else}
-                            <div>(no translation)</div>
+                            <div>(loading…)</div>
                         {/if}
                     </div>
                 {/if}
