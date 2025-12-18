@@ -10,6 +10,9 @@ from anki.conversation.gateway import ConversationGateway, ConversationProvider
 from anki.conversation.planner import ConversationPlanner
 from anki.conversation.snapshot import build_deck_snapshot
 from anki.conversation.telemetry import ConversationTelemetryStore
+from anki.conversation.export import export_conversation_telemetry
+from anki.conversation.redaction import redact_text
+from anki.conversation.settings import RedactionLevel
 from anki.conversation.types import (
     ConversationRequest,
     ConversationState,
@@ -42,6 +45,30 @@ def test_schema_is_created() -> None:
             )
             == 1
         )
+    finally:
+        col.close()
+
+
+def test_redaction_minimal_and_strict() -> None:
+    r = redact_text("email a@b.com url https://x.y", RedactionLevel.minimal)
+    assert "[REDACTED_EMAIL]" in r.text
+    assert "[REDACTED_URL]" in r.text
+    r2 = redact_text("call 1234567890", RedactionLevel.strict)
+    assert "[REDACTED_NUMBER]" in r2.text
+
+
+def test_export_telemetry_json_roundtrip() -> None:
+    col = getEmptyCol()
+    try:
+        store = ConversationTelemetryStore(col)
+        sid = store.start_session([1])
+        store.log_event(session_id=sid, turn_index=1, event_type="turn", payload={"x": 1})
+        store.end_session(sid, summary={"turns": 1})
+        exported = export_conversation_telemetry(col, limit_sessions=10)
+        data = json.loads(exported.to_json())
+        assert "sessions" in data and "events" in data and "items" in data
+        assert len(data["sessions"]) >= 1
+        assert len(data["events"]) >= 1
     finally:
         col.close()
 
@@ -165,6 +192,36 @@ def test_snapshot_extracts_lexemes_from_selected_deck() -> None:
         assert snapshot.deck_ids == (did,)
         assert snapshot.today is not None
         assert any(item.lexeme == "사이" for item in snapshot.items)
+    finally:
+        col.close()
+
+
+def test_snapshot_multi_deck_collation() -> None:
+    col = getEmptyCol()
+    try:
+        did1 = col.decks.id("Korean::A")
+        did2 = col.decks.id("Korean::B")
+
+        note1 = col.newNote()
+        note1["Front"] = "의자"
+        note1["Back"] = "chair"
+        col.addNote(note1)
+        for card in note1.cards():
+            card.did = did1
+            card.flush()
+
+        note2 = col.newNote()
+        note2["Front"] = "책상"
+        note2["Back"] = "desk"
+        col.addNote(note2)
+        for card in note2.cards():
+            card.did = did2
+            card.flush()
+
+        snapshot = build_deck_snapshot(col, [DeckId(did1), DeckId(did2)], include_fsrs_metrics=False)
+        assert set(snapshot.deck_ids) == {did1, did2}
+        lexemes = {i.lexeme for i in snapshot.items}
+        assert "의자" in lexemes and "책상" in lexemes
     finally:
         col.close()
 

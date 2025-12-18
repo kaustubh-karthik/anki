@@ -11,11 +11,14 @@ import orjson
 from anki.collection import Collection
 from anki.decks import DeckId
 
+from .export import export_conversation_telemetry
 from .gateway import ConversationGateway, ConversationProvider, OpenAIConversationProvider
 from .planner import ConversationPlanner
+from .redaction import redact_text
+from .settings import ConversationSettings, RedactionLevel
 from .snapshot import build_deck_snapshot
 from .telemetry import ConversationTelemetryStore
-from .types import ConversationRequest, UserInput
+from .types import ConversationRequest, GenerationInstructions, UserInput
 from .validation import tokenize_for_validation
 from .wrap import compute_session_wrap
 
@@ -85,7 +88,7 @@ def main(argv: list[str] | None = None) -> None:
 
     run = sub.add_parser("run", help="Run a text-only conversation session")
     run.add_argument("--collection", required=True, help="Path to .anki2 file")
-    run.add_argument("--deck", required=True, help="Deck name")
+    run.add_argument("--deck", action="append", required=True, help="Deck name (repeatable)")
     run.add_argument("--script", required=True, help="Path to JSON script")
     run.add_argument(
         "--provider",
@@ -95,25 +98,42 @@ def main(argv: list[str] | None = None) -> None:
     )
     run.add_argument("--api-key-file", default="gpt-api.txt")
     run.add_argument("--model", default="gpt-5-nano")
+    run.add_argument("--redaction", choices=[e.value for e in RedactionLevel], default="minimal")
+    run.add_argument("--safe-mode", action=argparse.BooleanOptionalAction, default=True)
     run.add_argument(
         "--provider-script",
         help="JSON file with scripted assistant responses (fake provider only)",
     )
 
+    snap = sub.add_parser("snapshot", help="Print a deterministic deck snapshot as JSON")
+    snap.add_argument("--collection", required=True)
+    snap.add_argument("--deck", action="append", required=True)
+
+    export = sub.add_parser("export-telemetry", help="Export stored conversation telemetry as JSON")
+    export.add_argument("--collection", required=True)
+    export.add_argument("--limit-sessions", type=int, default=100)
+
     args = parser.parse_args(argv)
 
     if args.cmd == "run":
         _cmd_run(args)
+    elif args.cmd == "snapshot":
+        _cmd_snapshot(args)
+    elif args.cmd == "export-telemetry":
+        _cmd_export(args)
 
 
 def _cmd_run(args: argparse.Namespace) -> None:
     col = Collection(args.collection)
     try:
-        did = col.decks.id_for_name(args.deck)
-        if not did:
-            raise SystemExit(f"deck not found: {args.deck}")
+        deck_ids: list[DeckId] = []
+        for deck_name in args.deck:
+            did = col.decks.id_for_name(deck_name)
+            if not did:
+                raise SystemExit(f"deck not found: {deck_name}")
+            deck_ids.append(DeckId(did))
 
-        snapshot = build_deck_snapshot(col, [DeckId(did)])
+        snapshot = build_deck_snapshot(col, deck_ids)
         planner = ConversationPlanner(snapshot)
         telemetry = ConversationTelemetryStore(col)
         session_id = telemetry.start_session(list(snapshot.deck_ids))
@@ -135,16 +155,31 @@ def _cmd_run(args: argparse.Namespace) -> None:
             api_key = Path(args.api_key_file).read_text(encoding="utf-8").strip()
             provider = OpenAIConversationProvider(api_key=api_key, model=args.model)
 
-        gateway = ConversationGateway(provider=provider)
+        settings = ConversationSettings(
+            provider=args.provider,
+            model=args.model,
+            safe_mode=bool(args.safe_mode),
+            redaction_level=RedactionLevel(args.redaction),
+        )
+        gateway = ConversationGateway(provider=provider, max_rewrites=settings.max_rewrites)
 
         state = planner.initial_state(summary="Conversation practice")
         transcript: list[dict[str, Any]] = []
         for turn in turns:
-            user_input = UserInput(
-                text_ko=turn.user_text_ko, confidence=turn.confidence  # type: ignore[arg-type]
-            )
+            redacted = redact_text(turn.user_text_ko, settings.redaction_level)
+            user_input = UserInput(text_ko=redacted.text, confidence=turn.confidence)  # type: ignore[arg-type]
             conv_state, constraints, instructions = planner.plan_turn(
                 state, user_input, mastery=mastery_cache
+            )
+            instructions = GenerationInstructions(
+                conversation_goal=instructions.conversation_goal,
+                tone=instructions.tone,
+                register=instructions.register,
+                provide_follow_up_question=instructions.provide_follow_up_question,
+                provide_micro_feedback=instructions.provide_micro_feedback,
+                provide_suggested_english_intent=instructions.provide_suggested_english_intent,
+                max_corrections=instructions.max_corrections,
+                safe_mode=settings.safe_mode,
             )
             request = ConversationRequest(
                 system_role=SYSTEM_ROLE,
@@ -230,6 +265,53 @@ def _cmd_run(args: argparse.Namespace) -> None:
                 }
             ).decode("utf-8")
         )
+    finally:
+        col.close()
+
+
+def _cmd_snapshot(args: argparse.Namespace) -> None:
+    col = Collection(args.collection)
+    try:
+        deck_ids: list[DeckId] = []
+        for deck_name in args.deck:
+            did = col.decks.id_for_name(deck_name)
+            if not did:
+                raise SystemExit(f"deck not found: {deck_name}")
+            deck_ids.append(DeckId(did))
+        snapshot = build_deck_snapshot(col, deck_ids)
+        print(
+            orjson.dumps(
+                {
+                    "deck_ids": list(snapshot.deck_ids),
+                    "today": snapshot.today,
+                    "items": [
+                        {
+                            "item_id": str(i.item_id),
+                            "lexeme": i.lexeme,
+                            "gloss": i.gloss,
+                            "source_note_id": i.source_note_id,
+                            "source_card_id": i.source_card_id,
+                            "due": i.due,
+                            "ivl": i.ivl,
+                            "reps": i.reps,
+                            "lapses": i.lapses,
+                            "stability": i.stability,
+                            "difficulty": i.difficulty,
+                        }
+                        for i in snapshot.items
+                    ],
+                }
+            ).decode("utf-8")
+        )
+    finally:
+        col.close()
+
+
+def _cmd_export(args: argparse.Namespace) -> None:
+    col = Collection(args.collection)
+    try:
+        exported = export_conversation_telemetry(col, limit_sessions=args.limit_sessions)
+        print(exported.to_json())
     finally:
         col.close()
 
