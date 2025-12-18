@@ -72,6 +72,25 @@
             }
         });
     }
+
+    function logEvent(type: string, token?: string): void {
+        if (!bridgeCommandsAvailable()) {
+            return;
+        }
+        bridgeCommand(buildConversationCommand("event", { type, token }));
+    }
+
+    function refreshWrap(): void {
+        if (!bridgeCommandsAvailable()) {
+            return;
+        }
+        bridgeCommand(buildConversationCommand("wrap"), (resp: any) => {
+            if (resp?.ok) {
+                // show a minimal summary in the footer
+                lastGloss = `reinforce: ${(resp.wrap?.reinforce ?? []).join(", ")}`;
+            }
+        });
+    }
 </script>
 
 <div class="page">
@@ -90,7 +109,13 @@
         {#each transcript as line}
             <div class={`msg ${line.role}`}>
                 {#each line.text.split(" ") as tok}
-                    <span class="tok" on:mouseenter={() => gloss(tok)}>{tok}</span>
+                    <span
+                        class="tok"
+                        on:mouseenter={() => gloss(tok)}
+                        on:click={() => logEvent("dont_know", tok)}
+                        on:dblclick={() => logEvent("practice_again", tok)}
+                        >{tok}</span
+                    >
                     <span> </span>
                 {/each}
             </div>
@@ -112,6 +137,10 @@
     {#if error}
         <div class="error">{error}</div>
     {/if}
+
+    <div class="row">
+        <button on:click={refreshWrap}>Refresh Wrap</button>
+    </div>
 </div>
 
 <style>
@@ -151,4 +180,3 @@
         color: #b00020;
     }
 </style>
-

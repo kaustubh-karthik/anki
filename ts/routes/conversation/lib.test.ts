@@ -16,3 +16,6 @@ test("buildConversationCommand turn", () => {
     );
 });
 
+test("buildConversationCommand wrap", () => {
+    expect(buildConversationCommand("wrap")).toBe("conversation:wrap");
+});

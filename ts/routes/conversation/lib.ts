@@ -3,7 +3,7 @@ export type ConversationTurnResponse =
     | { ok: false; error: string };
 
 export function buildConversationCommand(
-    kind: "init" | "start" | "turn" | "gloss",
+    kind: "init" | "start" | "turn" | "gloss" | "event" | "wrap" | "apply_suggestions",
     payload?: unknown,
 ): string {
     if (kind === "init") {
@@ -16,7 +16,13 @@ export function buildConversationCommand(
         }
         return `conversation:gloss:${lexeme}`;
     }
+    if (kind === "wrap") {
+        return "conversation:wrap";
+    }
+    if (kind === "apply_suggestions") {
+        const json = payload ? JSON.stringify(payload) : "{}";
+        return `conversation:apply_suggestions:${json}`;
+    }
     const json = payload ? JSON.stringify(payload) : "{}";
     return `conversation:${kind}:${json}`;
 }
-

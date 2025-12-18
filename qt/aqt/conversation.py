@@ -16,6 +16,9 @@ from anki.conversation import (
     OpenAIConversationProvider,
     build_deck_snapshot,
     lookup_gloss,
+    compute_session_wrap,
+    apply_suggested_cards,
+    suggestions_from_wrap,
 )
 from anki.conversation.cli import SYSTEM_ROLE
 from anki.conversation.types import ConversationRequest, GenerationInstructions, UserInput
@@ -30,6 +33,7 @@ if TYPE_CHECKING:
 @dataclass(slots=True)
 class _Session:
     deck_ids: list[int]
+    snapshot: Any
     planner: ConversationPlanner
     telemetry: ConversationTelemetryStore
     gateway: ConversationGateway | None
@@ -79,6 +83,14 @@ class ConversationDialog(QDialog):
         if cmd.startswith("conversation:turn:"):
             payload = json.loads(cmd.split(":", 2)[2])
             return self._run_turn(payload)
+        if cmd.startswith("conversation:event:"):
+            payload = json.loads(cmd.split(":", 2)[2])
+            return self._log_event(payload)
+        if cmd == "conversation:wrap":
+            return self._get_wrap()
+        if cmd.startswith("conversation:apply_suggestions:"):
+            payload = json.loads(cmd.split(":", 2)[2])
+            return self._apply_suggestions(payload)
         return None
 
     def _start_session(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -108,6 +120,7 @@ class ConversationDialog(QDialog):
         state = planner.initial_state(summary="Conversation practice")
         self._session = _Session(
             deck_ids=deck_ids,
+            snapshot=snapshot,
             planner=planner,
             telemetry=telemetry,
             gateway=gateway,
@@ -152,7 +165,59 @@ class ConversationDialog(QDialog):
         )
         response = self._session.gateway.run_turn(request=request)
         self._session.state.last_assistant_turn_ko = response.assistant_reply_ko
+        self._session.planner.observe_turn(
+            self._session.state,
+            constraints=constraints,
+            user_input=user_input,
+            assistant_reply_ko=response.assistant_reply_ko,
+            follow_up_question_ko=response.follow_up_question_ko,
+        )
         return {"ok": True, "response": response.to_json_dict()}
+
+    def _log_event(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if self._session is None:
+            return {"ok": False, "error": "session not started"}
+        etype = payload.get("type")
+        if not isinstance(etype, str):
+            return {"ok": False, "error": "invalid event"}
+        self._session.telemetry.log_event(
+            session_id=self._session.session_id,
+            turn_index=self._session.state.turn_index,
+            event_type=etype,
+            payload=payload,
+        )
+        # mirror CLI mastery counters
+        if etype in ("dont_know", "practice_again", "mark_confusing"):
+            token = payload.get("token")
+            if isinstance(token, str) and token:
+                self._session.telemetry.bump_item_cached(
+                    self._session.mastery_cache,
+                    item_id=f"lexeme:{token}",
+                    kind="lexeme",
+                    value=token,
+                    deltas={etype: 1},
+                )
+        return {"ok": True}
+
+    def _get_wrap(self) -> dict[str, Any]:
+        if self._session is None:
+            return {"ok": False, "error": "session not started"}
+        wrap = compute_session_wrap(snapshot=self._session.snapshot, mastery=self._session.mastery_cache)
+        return {"ok": True, "wrap": wrap}
+
+    def _apply_suggestions(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if self._session is None:
+            return {"ok": False, "error": "session not started"}
+        deck_name = payload.get("deck")
+        if not isinstance(deck_name, str) or not deck_name:
+            return {"ok": False, "error": "deck required"}
+        did = self.mw.col.decks.id_for_name(deck_name)
+        if not did:
+            return {"ok": False, "error": "deck not found"}
+        wrap = compute_session_wrap(snapshot=self._session.snapshot, mastery=self._session.mastery_cache)
+        suggestions = suggestions_from_wrap(wrap, deck_id=int(did))
+        created = apply_suggested_cards(self.mw.col, suggestions)
+        return {"ok": True, "created_note_ids": created}
 
 
 def open_conversation_practice() -> None:
