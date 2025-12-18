@@ -269,6 +269,11 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 - Made “Plan my reply” a progressive-disclosure panel (collapsed by default) and added a one-click “Use” action to insert a suggested Korean option into the input.
 - Ran `./ninja check` successfully after UI changes.
 
+### 2025-12-18 — Codex
+
+- Improved the “Add suggested cards” flow: wrap suggested cards are now shown as a progressive-disclosure panel with a target deck dropdown and an Apply action.
+- Ran `./ninja check` successfully after UI changes.
+
 ## Open Issues
 
 - [ ] Decide on default local dictionary source and licensing (offline-first, redistributable).

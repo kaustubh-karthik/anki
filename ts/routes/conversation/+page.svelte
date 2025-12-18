@@ -36,6 +36,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let intentEn = "";
     let replyOptions: string[] = [];
     let applyDeck = "Korean";
+    let showApplySuggestions = false;
     let lastWrap: any = null;
     let showPlanReply = false;
 
@@ -50,6 +51,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             deckOptions = resp.decks.filter((d: unknown) => typeof d === "string");
             if (!selectedDecks.length && deckOptions.length) {
                 selectedDecks = [deckOptions[0]];
+            }
+            if (deckOptions.length && !deckOptions.includes(applyDeck)) {
+                applyDeck = deckOptions[0];
             }
         });
     });
@@ -486,11 +490,36 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         </div>
     {/if}
 
-    <div class="row">
-        <label for="applyDeck">Apply suggestions to deck</label>
-        <input id="applyDeck" bind:value={applyDeck} />
-        <button on:click={applySuggestions}>Apply</button>
-    </div>
+    {#if lastWrap?.suggested_cards?.length}
+        <div class="row">
+            <button
+                type="button"
+                on:click={() => (showApplySuggestions = !showApplySuggestions)}
+            >
+                {showApplySuggestions ? "Hide" : "Show"} Add suggested cards to Anki
+            </button>
+        </div>
+        {#if showApplySuggestions}
+            <div class="gloss">
+                {#each lastWrap.suggested_cards as sc}
+                    <div>
+                        <strong>{sc.front}</strong>
+                        {#if sc.back}
+                            — {sc.back}{/if}
+                    </div>
+                {/each}
+                <div class="row">
+                    <label for="applyDeck">Target deck</label>
+                    <select id="applyDeck" bind:value={applyDeck}>
+                        {#each deckOptions as d}
+                            <option value={d}>{d}</option>
+                        {/each}
+                    </select>
+                    <button on:click={applySuggestions}>Apply</button>
+                </div>
+            </div>
+        {/if}
+    {/if}
 </div>
 
 <style>
