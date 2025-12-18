@@ -156,9 +156,15 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         }
         bridgeCommand(
             buildConversationCommand("start", { decks, topic_id: topicId || null }),
-            (resp: { ok: boolean; error?: string }) => {
+            (resp: { ok: boolean; error?: string; llm_enabled?: boolean }) => {
                 if (!resp?.ok) {
                     error = resp?.error ?? "Failed to start session.";
+                    return;
+                }
+                if (resp.llm_enabled === false) {
+                    error =
+                        "LLM provider not configured (missing API key?). Check Settings and gpt-api.txt.";
+                    started = false;
                     return;
                 }
                 started = true;
@@ -714,6 +720,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     .page {
         padding: 16px;
         font-family: system-ui, sans-serif;
+        background: var(--canvas-inset, #fff);
+        color: var(--fg, #111);
     }
     .row {
         display: flex;
@@ -722,14 +730,17 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         margin: 8px 0;
     }
     .chat {
-        border: 1px solid #ddd;
+        border: 1px solid var(--border, #888);
+        background: var(--canvas, #fff);
         padding: 8px;
         min-height: 200px;
         margin: 12px 0;
+        border-radius: 8px;
     }
     .msg {
         margin: 6px 0;
         white-space: pre-wrap;
+        color: var(--fg, #111);
     }
     .msg.user {
         text-align: right;
@@ -741,17 +752,17 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         margin: 0;
         font: inherit;
         cursor: pointer;
-        color: inherit;
+        color: var(--fg-link, var(--fg, #111));
         text-decoration: underline;
         text-underline-offset: 2px;
     }
     .gloss {
         margin-top: 8px;
-        color: #333;
+        color: var(--fg-subtle, var(--fg, #111));
         font-size: 0.9em;
     }
     .error {
         margin-top: 8px;
-        color: #b00020;
+        color: var(--accent-danger, #b00020);
     }
 </style>

@@ -17,7 +17,7 @@ class RedactionLevel(str, Enum):
 
 @dataclass(frozen=True)
 class ConversationSettings:
-    provider: str = "fake"
+    provider: str = "openai"
     model: str = "gpt-5-nano"
     safe_mode: bool = True
     redaction_level: RedactionLevel = RedactionLevel.minimal
@@ -51,7 +51,9 @@ def load_conversation_settings(col: Collection) -> ConversationSettings:
     snapshot_max_items = raw.get("snapshot_max_items", defaults.snapshot_max_items)
 
     if not isinstance(provider, str):
-        provider = "fake"
+        provider = "openai"
+    if provider not in ("openai", "local", "fake"):
+        provider = "openai"
     if not isinstance(model, str):
         model = "gpt-5-nano"
     if not isinstance(safe_mode, bool):
