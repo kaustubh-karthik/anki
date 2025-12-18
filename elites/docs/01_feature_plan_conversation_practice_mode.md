@@ -155,6 +155,8 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 - Implemented backend-only MVP modules: deck snapshot, deterministic planner, telemetry tables/store, and LLM gateway with safe-mode rewrite gate.
 - Added a CLI runner for fully automated text-only sessions and a fake provider for offline execution.
 - Added pytest coverage for schema creation, snapshot extraction, planner output, and gateway rewrite behavior.
+- Enhanced the deck snapshot to include FSRS `stability`/`difficulty` via `compute_memory_state()`, and updated planner ordering to prioritize low-stability items.
+- Added a baseline Korean \"glue\" vocabulary so safe-mode token budgeting is usable without constant rewrites.
 
 ## Open Issues
 

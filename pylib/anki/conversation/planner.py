@@ -13,6 +13,52 @@ from .types import (
     UserInput,
 )
 
+BASE_ALLOWED_SUPPORT: tuple[str, ...] = (
+    # Minimal Korean glue vocabulary to make safe-mode usable.
+    "이",
+    "가",
+    "은",
+    "는",
+    "을",
+    "를",
+    "에",
+    "에서",
+    "로",
+    "으로",
+    "와",
+    "과",
+    "랑",
+    "하고",
+    "도",
+    "만",
+    "그리고",
+    "그래서",
+    "근데",
+    "그런데",
+    "네",
+    "응",
+    "아니요",
+    "맞아요",
+    "아니에요",
+    "있어요",
+    "없어요",
+    "있어",
+    "없어",
+    "뭐",
+    "뭐가",
+    "뭐예요",
+    "어디",
+    "어디예요",
+    "여기",
+    "거기",
+    "저기",
+    "지금",
+    "오늘",
+    "내일",
+    "좋아요",
+    "싫어요",
+)
+
 
 @dataclass(slots=True)
 class PlannerState:
@@ -39,7 +85,9 @@ class ConversationPlanner:
     ) -> tuple[ConversationState, LanguageConstraints, GenerationInstructions]:
         state.turn_index += 1
 
-        lexemes = [item.lexeme for item in self._snapshot.items]
+        candidates = list(self._snapshot.items)
+        candidates.sort(key=lambda i: (-_rustiness(i.stability), i.lexeme))
+        lexemes = [item.lexeme for item in candidates]
 
         must_targets = tuple(
             MustTarget(
@@ -50,7 +98,9 @@ class ConversationPlanner:
             )
             for lexeme in lexemes[:must_target_count]
         )
-        allowed_support = tuple(dict.fromkeys(lexemes[:allowed_support_count]))
+        allowed_support = tuple(
+            dict.fromkeys(BASE_ALLOWED_SUPPORT + tuple(lexemes[:allowed_support_count]))
+        )
 
         constraints = LanguageConstraints(
             must_target=must_targets,
@@ -75,3 +125,9 @@ class ConversationPlanner:
         )
         state.last_user_turn_ko = user_input.text_ko
         return conv_state, constraints, instructions
+
+
+def _rustiness(stability: float | None) -> float:
+    if stability is None:
+        return 0.0
+    return 1.0 / (1.0 + max(stability, 0.0))

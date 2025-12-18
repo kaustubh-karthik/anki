@@ -18,6 +18,8 @@ class SnapshotItem:
     lexeme: str
     source_note_id: int
     source_card_id: int
+    stability: float | None = None
+    difficulty: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +34,7 @@ def build_deck_snapshot(
     *,
     lexeme_field_index: int = 0,
     max_items: int = 5000,
+    include_fsrs_metrics: bool = True,
 ) -> DeckSnapshot:
     dids: list[int] = []
     for did in deck_ids:
@@ -64,12 +67,21 @@ def build_deck_snapshot(
         lexeme = _extract_lexeme(raw)
         if not lexeme:
             continue
+
+        stability: float | None = None
+        difficulty: float | None = None
+        if include_fsrs_metrics:
+            state = col.compute_memory_state(card_id)
+            stability = state.stability
+            difficulty = state.difficulty
         items.append(
             SnapshotItem(
                 item_id=ItemId(f"lexeme:{lexeme}"),
                 lexeme=lexeme,
                 source_note_id=int(note_id),
                 source_card_id=int(card_id),
+                stability=stability,
+                difficulty=difficulty,
             )
         )
 
@@ -79,4 +91,3 @@ def build_deck_snapshot(
 def _extract_lexeme(text: str) -> str:
     m = _LEXEME_RE.search(text)
     return m.group(0) if m else ""
-
