@@ -19,6 +19,12 @@ class SnapshotItem:
     lexeme: str
     source_note_id: int
     source_card_id: int
+    card_type: int | None = None
+    card_queue: int | None = None
+    due: int | None = None
+    ivl: int | None = None
+    reps: int | None = None
+    lapses: int | None = None
     stability: float | None = None
     difficulty: float | None = None
     gloss: str | None = None
@@ -28,6 +34,7 @@ class SnapshotItem:
 class DeckSnapshot:
     deck_ids: tuple[int, ...]
     items: tuple[SnapshotItem, ...]
+    today: int | None = None
 
 
 def build_deck_snapshot(
@@ -39,6 +46,10 @@ def build_deck_snapshot(
     max_items: int = 5000,
     include_fsrs_metrics: bool = True,
 ) -> DeckSnapshot:
+    try:
+        today = int(col.sched.today)
+    except Exception:
+        today = None
     dids: list[int] = []
     for did in deck_ids:
         dids.extend(int(x) for x in col.decks.deck_and_child_ids(did))
@@ -48,7 +59,7 @@ def build_deck_snapshot(
 
     placeholders = ",".join("?" for _ in unique_dids)
     sql = (
-        "select c.id, c.nid, n.flds "
+        "select c.id, c.nid, n.flds, c.type, c.queue, c.due, c.ivl, c.reps, c.lapses "
         "from cards c "
         "join notes n on n.id = c.nid "
         f"where c.did in ({placeholders}) "
@@ -57,7 +68,7 @@ def build_deck_snapshot(
     rows = col.db.all(sql, *unique_dids, max_items)
 
     items: list[SnapshotItem] = []
-    for card_id, note_id, flds in rows:
+    for card_id, note_id, flds, ctype, cqueue, due, ivl, reps, lapses in rows:
         if not isinstance(flds, str):
             continue
         fields = flds.split("\x1f")
@@ -87,13 +98,19 @@ def build_deck_snapshot(
                 lexeme=lexeme,
                 source_note_id=int(note_id),
                 source_card_id=int(card_id),
+                card_type=int(ctype) if isinstance(ctype, int) else None,
+                card_queue=int(cqueue) if isinstance(cqueue, int) else None,
+                due=int(due) if isinstance(due, int) else None,
+                ivl=int(ivl) if isinstance(ivl, int) else None,
+                reps=int(reps) if isinstance(reps, int) else None,
+                lapses=int(lapses) if isinstance(lapses, int) else None,
                 stability=stability,
                 difficulty=difficulty,
                 gloss=gloss,
             )
         )
 
-    return DeckSnapshot(deck_ids=unique_dids, items=tuple(items))
+    return DeckSnapshot(deck_ids=unique_dids, items=tuple(items), today=today)
 
 
 def _extract_lexeme(text: str) -> str:

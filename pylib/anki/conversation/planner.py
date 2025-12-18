@@ -94,7 +94,7 @@ class ConversationPlanner:
         candidates = list(self._snapshot.items)
         candidates.sort(
             key=lambda i: (
-                -_priority_score(i.stability, mastery.get(str(i.item_id), {}) if mastery else {}),
+                -_candidate_score(self._snapshot.today, i, mastery.get(str(i.item_id), {}) if mastery else {}),
                 i.lexeme,
             )
         )
@@ -206,7 +206,8 @@ def _rustiness(stability: float | None) -> float:
     return 1.0 / (1.0 + max(stability, 0.0))
 
 
-def _priority_score(stability: float | None, mastery: dict[str, int]) -> float:
+def _candidate_score(today: int | None, item: object, mastery: dict[str, int]) -> float:
+    stability = getattr(item, "stability", None)
     rustiness = _rustiness(stability)
     dont_know = mastery.get("dont_know", 0)
     practice_again = mastery.get("practice_again", 0)
@@ -214,4 +215,21 @@ def _priority_score(stability: float | None, mastery: dict[str, int]) -> float:
         dont_know = 0
     if not isinstance(practice_again, int):
         practice_again = 0
-    return rustiness + dont_know * 0.5 + practice_again * 0.25
+    overdue_score = _overdue_score(today, item)
+    return rustiness + overdue_score + dont_know * 0.5 + practice_again * 0.25
+
+
+def _overdue_score(today: int | None, item: object) -> float:
+    if today is None:
+        return 0.0
+    due = getattr(item, "due", None)
+    ivl = getattr(item, "ivl", None)
+    queue = getattr(item, "card_queue", None)
+    if not isinstance(due, int) or not isinstance(ivl, int) or ivl <= 0:
+        return 0.0
+    if queue not in (2,):  # QUEUE_TYPE_REV
+        return 0.0
+    overdue_days = max(0, today - due)
+    # normalize by interval to avoid always preferring long-interval cards
+    ratio = min(2.0, overdue_days / ivl)
+    return ratio * 0.2

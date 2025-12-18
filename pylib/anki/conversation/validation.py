@@ -6,6 +6,24 @@ from dataclasses import dataclass
 from .types import LanguageConstraints
 
 _WORD_RE = re.compile(r"[\\w가-힣]+", re.UNICODE)
+_JOSA_SUFFIXES = (
+    "이",
+    "가",
+    "은",
+    "는",
+    "을",
+    "를",
+    "에",
+    "에서",
+    "로",
+    "으로",
+    "와",
+    "과",
+    "랑",
+    "하고",
+    "도",
+    "만",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,9 +69,21 @@ def validate_tokens(
     for token in tokens:
         if token.isdigit():
             continue
-        if token in allowed:
+        if _token_is_allowed(token, allowed):
             continue
         unexpected.append(token)
 
     return TokenValidation(unexpected_tokens=tuple(dict.fromkeys(unexpected)))
 
+
+def _token_is_allowed(token: str, allowed: set[str]) -> bool:
+    if token in allowed:
+        return True
+    # Korean-specific heuristic: allow a token like "의자가" if "의자" and "가" are allowed.
+    # This reduces false positives due to common particle attachment.
+    for suffix in _JOSA_SUFFIXES:
+        if token.endswith(suffix) and len(token) > len(suffix):
+            stem = token[: -len(suffix)]
+            if stem in allowed and suffix in allowed:
+                return True
+    return False

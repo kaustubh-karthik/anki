@@ -20,6 +20,7 @@ from anki.conversation.types import (
     UserInput,
 )
 from anki.decks import DeckId
+from anki.consts import CARD_TYPE_REV, QUEUE_TYPE_REV
 from tests.shared import getEmptyCol
 
 
@@ -162,6 +163,7 @@ def test_snapshot_extracts_lexemes_from_selected_deck() -> None:
 
         snapshot = build_deck_snapshot(col, [DeckId(did)])
         assert snapshot.deck_ids == (did,)
+        assert snapshot.today is not None
         assert any(item.lexeme == "사이" for item in snapshot.items)
     finally:
         col.close()
@@ -402,6 +404,53 @@ def test_planner_prioritizes_mastery_weak_items() -> None:
             UserInput(text_ko="응"),
             must_target_count=1,
             mastery=mastery,
+        )
+        assert constraints.must_target[0].surface_forms[0] == "책상"
+    finally:
+        col.close()
+
+
+def test_planner_prioritizes_overdue_review_cards() -> None:
+    col = getEmptyCol()
+    try:
+        did = col.decks.id("Korean")
+        col.decks.select(DeckId(did))
+        # create two lexemes
+        for lexeme in ["의자", "책상"]:
+            note = col.newNote()
+            note["Front"] = lexeme
+            note["Back"] = "x"
+            col.addNote(note)
+            for card in note.cards():
+                card.did = did
+                card.flush()
+
+        # set both cards to review, but make one more overdue
+        cards = col.db.all(
+            "select c.id, n.flds from cards c join notes n on n.id=c.nid where c.did=?",
+            did,
+        )
+        today = col.sched.today
+        for cid, flds in cards:
+            lexeme = str(flds).split("\x1f")[0]
+            card = col.getCard(int(cid))
+            card.type = CARD_TYPE_REV
+            card.queue = QUEUE_TYPE_REV
+            card.ivl = 10
+            if lexeme == "책상":
+                card.due = today - 10  # more overdue
+            else:
+                card.due = today - 1
+            card.flush()
+
+        snapshot = build_deck_snapshot(col, [DeckId(did)], include_fsrs_metrics=False)
+        planner = ConversationPlanner(snapshot)
+        state = planner.initial_state(summary="x")
+        _, constraints, _ = planner.plan_turn(
+            state,
+            UserInput(text_ko="응"),
+            must_target_count=1,
+            mastery={},
         )
         assert constraints.must_target[0].surface_forms[0] == "책상"
     finally:
