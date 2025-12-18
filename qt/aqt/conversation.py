@@ -81,6 +81,11 @@ class ConversationDialog(QDialog):
 
     def reject(self) -> None:
         saveGeom(self, self.TITLE)
+        if self._session is not None:
+            try:
+                self._end_session()
+            except Exception:
+                pass
         self.web.cleanup()
         super().reject()
 
@@ -91,6 +96,8 @@ class ConversationDialog(QDialog):
             result = {"ok": True}
         elif cmd == "conversation:decks":
             result = {"ok": True, "decks": self.mw.col.decks.all_names()}
+        elif cmd == "conversation:end":
+            result = self._end_session()
         elif cmd == "conversation:wrap":
             result = self._get_wrap()
         elif cmd.startswith("conversation:gloss:"):
@@ -256,6 +263,18 @@ class ConversationDialog(QDialog):
             snapshot=self._session.snapshot, mastery=self._session.mastery_cache
         )
         return {"ok": True, "wrap": wrap}
+
+    def _end_session(self) -> dict[str, Any]:
+        if self._session is None:
+            return {"ok": False, "error": "session not started"}
+        wrap = compute_session_wrap(
+            snapshot=self._session.snapshot, mastery=self._session.mastery_cache
+        )
+        summary = {"turns": self._session.state.turn_index, "wrap": wrap}
+        self._session.telemetry.end_session(self._session.session_id, summary=summary)
+        sid = self._session.session_id
+        self._session = None
+        return {"ok": True, "session_id": sid, "wrap": wrap}
 
     def _apply_suggestions(self, payload: dict[str, Any]) -> dict[str, Any]:
         if self._session is None:

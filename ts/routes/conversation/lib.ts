@@ -20,6 +20,7 @@ export function buildConversationCommand(
         | "init"
         | "decks"
         | "start"
+        | "end"
         | "turn"
         | "gloss"
         | "event"
@@ -34,6 +35,9 @@ export function buildConversationCommand(
     }
     if (kind === "decks") {
         return "conversation:decks";
+    }
+    if (kind === "end") {
+        return "conversation:end";
     }
     if (kind === "gloss") {
         const lexeme = (payload as any)?.lexeme;

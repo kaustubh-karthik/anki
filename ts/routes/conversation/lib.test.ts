@@ -13,6 +13,10 @@ test("buildConversationCommand decks", () => {
     expect(buildConversationCommand("decks")).toBe("conversation:decks");
 });
 
+test("buildConversationCommand end", () => {
+    expect(buildConversationCommand("end")).toBe("conversation:end");
+});
+
 test("buildConversationCommand gloss", () => {
     expect(buildConversationCommand("gloss", { lexeme: "의자" })).toBe("conversation:gloss:의자");
 });

@@ -36,6 +36,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let intentEn = "";
     let replyOptions: string[] = [];
     let applyDeck = "Korean";
+    let lastWrap: any = null;
 
     onMount(() => {
         if (!bridgeCommandsAvailable()) {
@@ -191,9 +192,23 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         }
         bridgeCommand(buildConversationCommand("wrap"), (resp: any) => {
             if (resp?.ok) {
-                // show a minimal summary in the footer
-                lastGloss = `reinforce: ${(resp.wrap?.reinforce ?? []).join(", ")}`;
+                lastWrap = resp.wrap ?? null;
             }
+        });
+    }
+
+    function endSession(): void {
+        error = null;
+        if (!bridgeCommandsAvailable()) {
+            return;
+        }
+        bridgeCommand(buildConversationCommand("end"), (resp: any) => {
+            if (!resp?.ok) {
+                error = resp?.error ?? "end session failed.";
+                return;
+            }
+            lastWrap = resp.wrap ?? null;
+            started = false;
         });
     }
 
@@ -415,7 +430,27 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
     <div class="row">
         <button on:click={refreshWrap}>Refresh Wrap</button>
+        <button type="button" on:click={endSession}>End session</button>
     </div>
+
+    {#if lastWrap}
+        <div class="gloss">
+            <div>
+                <strong>Strengths:</strong>
+                {(lastWrap.strengths ?? []).join(", ")}
+            </div>
+            <div>
+                <strong>Reinforce:</strong>
+                {(lastWrap.reinforce ?? []).join(", ")}
+            </div>
+            {#if lastWrap.suggested_cards?.length}
+                <div>
+                    <strong>Suggested cards:</strong>
+                    {lastWrap.suggested_cards.length}
+                </div>
+            {/if}
+        </div>
+    {/if}
 
     <div class="row">
         <label for="intent">English intent</label>

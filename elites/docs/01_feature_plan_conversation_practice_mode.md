@@ -258,6 +258,12 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 - Replaced comma-separated deck input with a proper deck picker: added a `conversation:decks` bridge command and a multi-select UI in the conversation page.
 - Ran `./ninja check` successfully after UI changes.
 
+### 2025-12-18 — Codex
+
+- Added an explicit end-of-session flow: `conversation:end` bridge command ends the DB-backed session with a wrap summary, and the UI now has an “End session” action that shows wrap-up (strengths/reinforce/suggestions).
+- The dialog now attempts to end an active session on close to avoid leaving sessions open-ended.
+- Ran `./ninja check` successfully after UI changes.
+
 ## Open Issues
 
 - [ ] Decide on default local dictionary source and licensing (offline-first, redistributable).
