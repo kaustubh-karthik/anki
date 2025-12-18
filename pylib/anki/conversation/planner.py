@@ -82,11 +82,17 @@ class ConversationPlanner:
         *,
         must_target_count: int = 3,
         allowed_support_count: int = 60,
+        mastery: dict[str, dict[str, int]] | None = None,
     ) -> tuple[ConversationState, LanguageConstraints, GenerationInstructions]:
         state.turn_index += 1
 
         candidates = list(self._snapshot.items)
-        candidates.sort(key=lambda i: (-_rustiness(i.stability), i.lexeme))
+        candidates.sort(
+            key=lambda i: (
+                -_priority_score(i.stability, mastery.get(str(i.item_id), {}) if mastery else {}),
+                i.lexeme,
+            )
+        )
         lexemes = [item.lexeme for item in candidates]
 
         must_targets = tuple(
@@ -131,3 +137,14 @@ def _rustiness(stability: float | None) -> float:
     if stability is None:
         return 0.0
     return 1.0 / (1.0 + max(stability, 0.0))
+
+
+def _priority_score(stability: float | None, mastery: dict[str, int]) -> float:
+    rustiness = _rustiness(stability)
+    dont_know = mastery.get("dont_know", 0)
+    practice_again = mastery.get("practice_again", 0)
+    if not isinstance(dont_know, int):
+        dont_know = 0
+    if not isinstance(practice_again, int):
+        practice_again = 0
+    return rustiness + dont_know * 0.5 + practice_again * 0.25

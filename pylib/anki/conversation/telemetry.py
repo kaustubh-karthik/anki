@@ -59,6 +59,77 @@ class ConversationTelemetryStore:
     def __post_init__(self) -> None:
         ensure_conversation_schema(self.col)
 
+    def bump_item(
+        self,
+        *,
+        item_id: str,
+        kind: str,
+        value: str,
+        deltas: dict[str, int],
+    ) -> None:
+        """Upsert deterministic mastery counters for a lexeme/grammar item.
+
+        Stored as a JSON object mapping counter names -> integers.
+        """
+
+        now = _now_ms()
+        existing = self.col.db.scalar(
+            "select mastery_json from elites_conversation_items where item_id=?",
+            item_id,
+        )
+        if isinstance(existing, str) and existing:
+            mastery = orjson.loads(existing)
+        else:
+            mastery = {}
+
+        if not isinstance(mastery, dict):
+            mastery = {}
+
+        for key, delta in deltas.items():
+            current = mastery.get(key, 0)
+            if not isinstance(current, int):
+                current = 0
+            mastery[key] = current + int(delta)
+
+        payload = orjson.dumps(mastery).decode("utf-8")
+        self.col.db.executemany(
+            """
+insert into elites_conversation_items(item_id, kind, value, mastery_json, updated_ms)
+values(?, ?, ?, ?, ?)
+on conflict(item_id) do update set
+  kind=excluded.kind,
+  value=excluded.value,
+  mastery_json=excluded.mastery_json,
+  updated_ms=excluded.updated_ms
+""",
+            [(item_id, kind, value, payload, now)],
+        )
+
+    def get_mastery_bulk(self, item_ids: list[str]) -> dict[str, dict[str, int]]:
+        if not item_ids:
+            return {}
+        placeholders = ",".join("?" for _ in item_ids)
+        rows = self.col.db.all(
+            f"select item_id, mastery_json from elites_conversation_items where item_id in ({placeholders})",
+            *item_ids,
+        )
+        out: dict[str, dict[str, int]] = {}
+        for item_id, mastery_json in rows:
+            if not isinstance(item_id, str) or not isinstance(mastery_json, str):
+                continue
+            try:
+                parsed = orjson.loads(mastery_json)
+            except Exception:
+                continue
+            if not isinstance(parsed, dict):
+                continue
+            cleaned: dict[str, int] = {}
+            for k, v in parsed.items():
+                if isinstance(k, str) and isinstance(v, int):
+                    cleaned[k] = v
+            out[item_id] = cleaned
+        return out
+
     def start_session(self, deck_ids: list[int]) -> int:
         started = _now_ms()
         deck_ids_str = ",".join(str(x) for x in deck_ids)

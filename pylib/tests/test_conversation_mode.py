@@ -61,7 +61,18 @@ def test_cli_run_is_fully_automatable_and_writes_db(tmp_path) -> None:
             card.flush()
 
         script_path = tmp_path / "script.json"
-        script_path.write_text('[{"text_ko":"응"}]', encoding="utf-8")
+        script_path.write_text(
+            json.dumps(
+                [
+                    {
+                        "text_ko": "응",
+                        "events": [{"type": "dont_know", "token": "의자"}],
+                    }
+                ],
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
 
         provider_script_path = tmp_path / "provider.json"
         provider_script_path.write_text(
@@ -116,7 +127,15 @@ def test_cli_run_is_fully_automatable_and_writes_db(tmp_path) -> None:
         opened = Collection(collection_path)
         try:
             assert opened.db.scalar("select count() from elites_conversation_sessions") == 1
-            assert opened.db.scalar("select count() from elites_conversation_events") == 1
+            # one dont_know + one turn event
+            assert opened.db.scalar("select count() from elites_conversation_events") == 2
+            assert (
+                opened.db.scalar(
+                    "select mastery_json from elites_conversation_items where item_id=?",
+                    "lexeme:의자",
+                )
+                is not None
+            )
         finally:
             opened.close()
     finally:
@@ -220,3 +239,69 @@ def test_gateway_rewrites_on_unexpected_tokens() -> None:
     resp = gateway.run_turn(request=request)
     assert provider.calls == 2
     assert resp.unexpected_tokens == ()
+
+
+def test_mastery_upsert_and_increment() -> None:
+    col = getEmptyCol()
+    try:
+        store = ConversationTelemetryStore(col)
+        store.bump_item(
+            item_id="lexeme:의자",
+            kind="lexeme",
+            value="의자",
+            deltas={"dont_know": 1},
+        )
+        store.bump_item(
+            item_id="lexeme:의자",
+            kind="lexeme",
+            value="의자",
+            deltas={"dont_know": 2, "practice_again": 1},
+        )
+        mastery_json = col.db.scalar(
+            "select mastery_json from elites_conversation_items where item_id=?",
+            "lexeme:의자",
+        )
+        assert isinstance(mastery_json, str)
+        mastery = json.loads(mastery_json)
+        assert mastery["dont_know"] == 3
+        assert mastery["practice_again"] == 1
+    finally:
+        col.close()
+
+
+def test_planner_prioritizes_mastery_weak_items() -> None:
+    col = getEmptyCol()
+    try:
+        did = col.decks.id("Korean")
+        col.decks.select(DeckId(did))
+        for lexeme in ["의자", "책상"]:
+            note = col.newNote()
+            note["Front"] = lexeme
+            note["Back"] = "x"
+            col.addNote(note)
+            for card in note.cards():
+                card.did = did
+                card.flush()
+
+        snapshot = build_deck_snapshot(col, [DeckId(did)], include_fsrs_metrics=False)
+        planner = ConversationPlanner(snapshot)
+        state = planner.initial_state(summary="x")
+
+        store = ConversationTelemetryStore(col)
+        store.bump_item(
+            item_id="lexeme:책상",
+            kind="lexeme",
+            value="책상",
+            deltas={"dont_know": 3},
+        )
+        mastery = store.get_mastery_bulk(["lexeme:의자", "lexeme:책상"])
+
+        _, constraints, _ = planner.plan_turn(
+            state,
+            UserInput(text_ko="응"),
+            must_target_count=1,
+            mastery=mastery,
+        )
+        assert constraints.must_target[0].surface_forms[0] == "책상"
+    finally:
+        col.close()

@@ -51,6 +51,7 @@ class FakeConversationProvider(ConversationProvider):
 class ScriptTurn:
     user_text_ko: str
     confidence: str | None = None
+    events: list[dict[str, Any]] | None = None
 
 
 def _load_script(path: Path) -> list[ScriptTurn]:
@@ -67,7 +68,12 @@ def _load_script(path: Path) -> list[ScriptTurn]:
         conf = entry.get("confidence")
         if conf is not None and conf not in ("confident", "unsure", "guessing"):
             raise SystemExit("confidence must be confident|unsure|guessing")
-        turns.append(ScriptTurn(user_text_ko=text, confidence=conf))
+        events = entry.get("events")
+        if events is not None and not (
+            isinstance(events, list) and all(isinstance(e, dict) for e in events)
+        ):
+            raise SystemExit("events must be a list of objects")
+        turns.append(ScriptTurn(user_text_ko=text, confidence=conf, events=events))
     return turns
 
 
@@ -132,7 +138,12 @@ def _cmd_run(args: argparse.Namespace) -> None:
             user_input = UserInput(
                 text_ko=turn.user_text_ko, confidence=turn.confidence  # type: ignore[arg-type]
             )
-            conv_state, constraints, instructions = planner.plan_turn(state, user_input)
+            mastery = telemetry.get_mastery_bulk(
+                [str(item.item_id) for item in snapshot.items]
+            )
+            conv_state, constraints, instructions = planner.plan_turn(
+                state, user_input, mastery=mastery
+            )
             request = ConversationRequest(
                 system_role=SYSTEM_ROLE,
                 conversation_state=conv_state,
@@ -141,6 +152,27 @@ def _cmd_run(args: argparse.Namespace) -> None:
                 generation_instructions=instructions,
             )
             response = gateway.run_turn(request=request)
+
+            if turn.events:
+                for event in turn.events:
+                    etype = event.get("type")
+                    token = event.get("token")
+                    if isinstance(etype, str):
+                        telemetry.log_event(
+                            session_id=session_id,
+                            turn_index=state.turn_index,
+                            event_type=etype,
+                            payload=event,
+                        )
+                        if isinstance(token, str) and token:
+                            if etype in ("dont_know", "practice_again"):
+                                telemetry.bump_item(
+                                    item_id=f"lexeme:{token}",
+                                    kind="lexeme",
+                                    value=token,
+                                    deltas={etype: 1},
+                                )
+
             telemetry.log_event(
                 session_id=session_id,
                 turn_index=state.turn_index,
@@ -168,4 +200,3 @@ def _cmd_run(args: argparse.Namespace) -> None:
 
 if __name__ == "__main__":
     main()
-
