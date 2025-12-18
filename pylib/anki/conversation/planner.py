@@ -195,12 +195,13 @@ class ConversationPlanner:
         user_input: UserInput,
         assistant_reply_ko: str,
         follow_up_question_ko: str,
-    ) -> None:
+    ) -> list[str]:
         user_tokens = set(tokenize_for_validation(user_input.text_ko))
         assistant_tokens = set(
             tokenize_for_validation(assistant_reply_ko)
             + tokenize_for_validation(follow_up_question_ko)
         )
+        missed: list[str] = []
         for target in constraints.must_target:
             item_id = str(target.id)
             used = any(sf in user_tokens or sf in assistant_tokens for sf in target.surface_forms)
@@ -210,6 +211,8 @@ class ConversationPlanner:
                     state.scheduled_reuse.get(item_id, state.turn_index + 1),
                     state.turn_index + 1,
                 )
+                missed.append(item_id)
+        return missed
 
 
 def _rustiness(stability: float | None) -> float:

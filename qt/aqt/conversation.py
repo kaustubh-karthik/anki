@@ -19,6 +19,9 @@ from anki.conversation import (
     compute_session_wrap,
     apply_suggested_cards,
     suggestions_from_wrap,
+    PlanReplyGateway,
+    PlanReplyRequest,
+    OpenAIPlanReplyProvider,
 )
 from anki.conversation.cli import SYSTEM_ROLE
 from anki.conversation.types import ConversationRequest, GenerationInstructions, UserInput
@@ -91,6 +94,9 @@ class ConversationDialog(QDialog):
         if cmd.startswith("conversation:apply_suggestions:"):
             payload = json.loads(cmd.split(":", 2)[2])
             return self._apply_suggestions(payload)
+        if cmd.startswith("conversation:plan_reply:"):
+            payload = json.loads(cmd.split(":", 2)[2])
+            return self._plan_reply(payload)
         return None
 
     def _start_session(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -165,13 +171,23 @@ class ConversationDialog(QDialog):
         )
         response = self._session.gateway.run_turn(request=request)
         self._session.state.last_assistant_turn_ko = response.assistant_reply_ko
-        self._session.planner.observe_turn(
+        missed = self._session.planner.observe_turn(
             self._session.state,
             constraints=constraints,
             user_input=user_input,
             assistant_reply_ko=response.assistant_reply_ko,
             follow_up_question_ko=response.follow_up_question_ko,
         )
+        for item_id in missed:
+            if item_id.startswith("lexeme:"):
+                token = item_id.removeprefix("lexeme:")
+                self._session.telemetry.bump_item_cached(
+                    self._session.mastery_cache,
+                    item_id=item_id,
+                    kind="lexeme",
+                    value=token,
+                    deltas={"missed_target": 1},
+                )
         return {"ok": True, "response": response.to_json_dict()}
 
     def _log_event(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -218,6 +234,35 @@ class ConversationDialog(QDialog):
         suggestions = suggestions_from_wrap(wrap, deck_id=int(did))
         created = apply_suggested_cards(self.mw.col, suggestions)
         return {"ok": True, "created_note_ids": created}
+
+    def _plan_reply(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if self._session is None:
+            return {"ok": False, "error": "session not started"}
+        intent = payload.get("intent_en")
+        if not isinstance(intent, str) or not intent:
+            return {"ok": False, "error": "intent_en required"}
+        # dev convenience key
+        try:
+            api_key = open("gpt-api.txt", encoding="utf-8").read().strip()
+        except Exception:
+            api_key = ""
+        if not api_key:
+            return {"ok": False, "error": "LLM provider not configured"}
+        provider = OpenAIPlanReplyProvider(api_key=api_key)
+        gateway = PlanReplyGateway(provider=provider)
+        # reuse planner constraints for current state
+        conv_state, constraints, instructions = self._session.planner.plan_turn(
+            self._session.state, UserInput(text_ko=""), mastery=self._session.mastery_cache
+        )
+        req = PlanReplyRequest(
+            system_role=SYSTEM_ROLE,
+            conversation_state=conv_state,
+            intent_en=intent,
+            language_constraints=constraints,
+            generation_instructions=instructions,
+        )
+        resp = gateway.run(request=req)
+        return {"ok": True, "plan": resp.to_json_dict()}
 
 
 def open_conversation_practice() -> None:

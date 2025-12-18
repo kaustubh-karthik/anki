@@ -14,7 +14,13 @@ from .plan_reply import OpenAIPlanReplyProvider
 from .openai import OpenAIResponsesJsonClient
 from .planner import ConversationPlanner, PlannerState
 from .redaction import redact_text
-from .settings import ConversationSettings, RedactionLevel
+from .settings import (
+    CONFIG_KEY,
+    ConversationSettings,
+    RedactionLevel,
+    load_conversation_settings,
+    save_conversation_settings,
+)
 from .snapshot import DeckSnapshot, build_deck_snapshot
 from .suggest import apply_suggested_cards, suggestions_from_wrap
 from .telemetry import ConversationTelemetryStore
@@ -55,6 +61,9 @@ __all__ = [
     "export_conversation_telemetry",
     "redact_text",
     "RedactionLevel",
+    "CONFIG_KEY",
+    "load_conversation_settings",
+    "save_conversation_settings",
     "rebuild_glossary_from_snapshot",
     "select_collocation_targets",
     "select_grammar_patterns",

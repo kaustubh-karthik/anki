@@ -165,6 +165,8 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 - Refactored OpenAI JSON calls into a shared client, wired plan-reply OpenAI provider, and added an offline glossary cache with CLI rebuild/lookup for instant token popups without network.
 - Added an initial desktop UI scaffold: a SvelteKit `conversation` page and a Qt dialog that loads it via `load_sveltekit_page()` with basic bridge commands (`init`, `start`, `turn`, `gloss`). (TS tests not runnable in this environment due to missing Node toolchain.)
 - Expanded the UI bridge: token click/double-click now logs `dont_know`/`practice_again` events, and the web UI can request wrap summaries and apply suggestions through Qt bridge commands.
+- Wired \"Plan my reply\" into the desktop UI via a new bridge command that calls the backend plan-reply gateway (requires API key present locally).
+- Added persisted conversation settings stored in collection config (CLI get/set) and implemented deterministic missed-target detection to penalize avoidance in mastery signals.
 
 ## Open Issues
 

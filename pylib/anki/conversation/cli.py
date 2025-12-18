@@ -23,6 +23,7 @@ from .plan_reply import (
 from .planner import ConversationPlanner
 from .redaction import redact_text
 from .settings import ConversationSettings, RedactionLevel
+from .settings import load_conversation_settings, save_conversation_settings
 from .snapshot import build_deck_snapshot
 from .suggest import apply_suggested_cards, suggestions_from_wrap
 from .telemetry import ConversationTelemetryStore
@@ -144,6 +145,14 @@ def main(argv: list[str] | None = None) -> None:
     rebuild.add_argument("--collection", required=True)
     rebuild.add_argument("--deck", action="append", required=True)
 
+    getset = sub.add_parser("settings", help="Get/set persisted conversation settings")
+    getset.add_argument("--collection", required=True)
+    getset.add_argument("--set-provider")
+    getset.add_argument("--set-model")
+    getset.add_argument("--set-safe-mode", choices=["true", "false"])
+    getset.add_argument("--set-redaction", choices=[e.value for e in RedactionLevel])
+    getset.add_argument("--set-max-rewrites", type=int)
+
     args = parser.parse_args(argv)
 
     if args.cmd == "run":
@@ -160,6 +169,8 @@ def main(argv: list[str] | None = None) -> None:
         _cmd_gloss(args)
     elif args.cmd == "rebuild-glossary":
         _cmd_rebuild_glossary(args)
+    elif args.cmd == "settings":
+        _cmd_settings(args)
 
 
 def _cmd_run(args: argparse.Namespace) -> None:
@@ -320,13 +331,23 @@ def _cmd_run(args: argparse.Namespace) -> None:
                 }
             )
             state.last_assistant_turn_ko = response.assistant_reply_ko
-            planner.observe_turn(
+            missed = planner.observe_turn(
                 state,
                 constraints=constraints,
                 user_input=user_input,
                 assistant_reply_ko=response.assistant_reply_ko,
                 follow_up_question_ko=response.follow_up_question_ko,
             )
+            for item_id in missed:
+                if item_id.startswith("lexeme:"):
+                    token = item_id.removeprefix("lexeme:")
+                    telemetry.bump_item_cached(
+                        mastery_cache,
+                        item_id=item_id,
+                        kind="lexeme",
+                        value=token,
+                        deltas={"missed_target": 1},
+                    )
 
         wrap = compute_session_wrap(snapshot=snapshot, mastery=mastery_cache)
         summary = {"turns": len(turns), "wrap": wrap}
@@ -500,6 +521,75 @@ def _cmd_rebuild_glossary(args: argparse.Namespace) -> None:
         snapshot = build_deck_snapshot(col, deck_ids)
         count = rebuild_glossary_from_snapshot(col, snapshot)
         print(orjson.dumps({"updated": count}).decode("utf-8"))
+    finally:
+        col.close()
+
+
+def _cmd_settings(args: argparse.Namespace) -> None:
+    col = Collection(args.collection)
+    try:
+        settings = load_conversation_settings(col)
+        changed = False
+        if args.set_provider is not None:
+            settings = ConversationSettings(
+                provider=args.set_provider,
+                model=settings.model,
+                safe_mode=settings.safe_mode,
+                redaction_level=settings.redaction_level,
+                max_rewrites=settings.max_rewrites,
+            )
+            changed = True
+        if args.set_model is not None:
+            settings = ConversationSettings(
+                provider=settings.provider,
+                model=args.set_model,
+                safe_mode=settings.safe_mode,
+                redaction_level=settings.redaction_level,
+                max_rewrites=settings.max_rewrites,
+            )
+            changed = True
+        if args.set_safe_mode is not None:
+            settings = ConversationSettings(
+                provider=settings.provider,
+                model=settings.model,
+                safe_mode=args.set_safe_mode == "true",
+                redaction_level=settings.redaction_level,
+                max_rewrites=settings.max_rewrites,
+            )
+            changed = True
+        if args.set_redaction is not None:
+            settings = ConversationSettings(
+                provider=settings.provider,
+                model=settings.model,
+                safe_mode=settings.safe_mode,
+                redaction_level=RedactionLevel(args.set_redaction),
+                max_rewrites=settings.max_rewrites,
+            )
+            changed = True
+        if args.set_max_rewrites is not None:
+            settings = ConversationSettings(
+                provider=settings.provider,
+                model=settings.model,
+                safe_mode=settings.safe_mode,
+                redaction_level=settings.redaction_level,
+                max_rewrites=args.set_max_rewrites,
+            )
+            changed = True
+
+        if changed:
+            save_conversation_settings(col, settings)
+
+        print(
+            orjson.dumps(
+                {
+                    "provider": settings.provider,
+                    "model": settings.model,
+                    "safe_mode": settings.safe_mode,
+                    "redaction_level": settings.redaction_level.value,
+                    "max_rewrites": settings.max_rewrites,
+                }
+            ).decode("utf-8")
+        )
     finally:
         col.close()
 

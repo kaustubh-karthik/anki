@@ -16,6 +16,7 @@ from anki.conversation.settings import RedactionLevel
 from anki.conversation.plan_reply import FakePlanReplyProvider, PlanReplyGateway, PlanReplyRequest
 from anki.conversation.suggest import apply_suggested_cards, suggestions_from_wrap
 from anki.conversation.glossary import lookup_gloss, rebuild_glossary_from_snapshot
+from anki.conversation.settings import load_conversation_settings, save_conversation_settings, ConversationSettings
 from anki.conversation.types import (
     ConversationRequest,
     ConversationState,
@@ -456,6 +457,22 @@ def test_glossary_rebuild_and_lookup() -> None:
         col.close()
 
 
+def test_settings_persist_roundtrip() -> None:
+    col = getEmptyCol()
+    try:
+        s = load_conversation_settings(col)
+        assert s.model
+        save_conversation_settings(
+            col,
+            ConversationSettings(provider="openai", model="gpt-5-nano", safe_mode=False),
+        )
+        s2 = load_conversation_settings(col)
+        assert s2.provider == "openai"
+        assert s2.safe_mode is False
+    finally:
+        col.close()
+
+
 def test_mastery_upsert_and_increment() -> None:
     col = getEmptyCol()
     try:
@@ -700,6 +717,34 @@ def test_planner_micro_spacing_reuses_due_targets() -> None:
 
         # Turn 3 should have reused the first target (due)
         assert c3.must_target[0].surface_forms[0] == first
+    finally:
+        col.close()
+
+
+def test_observe_turn_returns_missed_targets() -> None:
+    col = getEmptyCol()
+    try:
+        did = col.decks.id("Korean")
+        col.decks.select(DeckId(did))
+        note = col.newNote()
+        note["Front"] = "의자"
+        note["Back"] = "chair"
+        col.addNote(note)
+        for card in note.cards():
+            card.did = did
+            card.flush()
+        snapshot = build_deck_snapshot(col, [DeckId(did)], include_fsrs_metrics=False)
+        planner = ConversationPlanner(snapshot)
+        state = planner.initial_state(summary="x")
+        _, constraints, _ = planner.plan_turn(state, UserInput(text_ko="응"), must_target_count=1, mastery={})
+        missed = planner.observe_turn(
+            state,
+            constraints=constraints,
+            user_input=UserInput(text_ko="응"),
+            assistant_reply_ko="네.",
+            follow_up_question_ko="뭐예요?",
+        )
+        assert any(m.startswith("lexeme:") for m in missed)
     finally:
         col.close()
 

@@ -8,6 +8,8 @@
     let transcript: Array<{ role: "user" | "assistant"; text: string }> = [];
     let lastGloss: string | null = null;
     let error: string | null = null;
+    let intentEn = "";
+    let replyOptions: string[] = [];
 
     function start(): void {
         error = null;
@@ -91,6 +93,22 @@
             }
         });
     }
+
+    function planReply(): void {
+        error = null;
+        replyOptions = [];
+        const intent = intentEn.trim();
+        if (!intent) {
+            return;
+        }
+        bridgeCommand(buildConversationCommand("plan_reply", { intent_en: intent }), (resp: any) => {
+            if (!resp?.ok) {
+                error = resp?.error ?? "plan-reply failed.";
+                return;
+            }
+            replyOptions = resp.plan?.options_ko ?? [];
+        });
+    }
 </script>
 
 <div class="page">
@@ -141,6 +159,19 @@
     <div class="row">
         <button on:click={refreshWrap}>Refresh Wrap</button>
     </div>
+
+    <div class="row">
+        <label>English intent</label>
+        <input bind:value={intentEn} placeholder="What do you want to say?" />
+        <button on:click={planReply}>Plan Reply</button>
+    </div>
+    {#if replyOptions.length}
+        <div class="gloss">
+            {#each replyOptions as opt}
+                <div>{opt}</div>
+            {/each}
+        </div>
+    {/if}
 </div>
 
 <style>
