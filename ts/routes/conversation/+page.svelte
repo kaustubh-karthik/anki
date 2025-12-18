@@ -65,6 +65,13 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         sendEvent({ type: "mark_confusing_message", turn_index: index + 1 });
     }
 
+    function repairMove(move: string, phraseKo: string): void {
+        sendEvent({ type: "repair_move", move });
+        if (!message.trim()) {
+            message = phraseKo;
+        }
+    }
+
     function start(): void {
         error = null;
         if (!bridgeCommandsAvailable()) {
@@ -322,6 +329,27 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             on:keydown={(e) => e.key === "Enter" && send()}
         />
         <button on:click={send}>Send</button>
+    </div>
+
+    <div class="row">
+        <button
+            type="button"
+            on:click={() => repairMove("clarify_meaning", "무슨 뜻이에요?")}
+        >
+            Clarify meaning
+        </button>
+        <button
+            type="button"
+            on:click={() => repairMove("simplify", "좀 더 쉽게 말해 주세요.")}
+        >
+            Say it simpler
+        </button>
+        <button
+            type="button"
+            on:click={() => repairMove("confirm", "그러면 … 맞아요?")}
+        >
+            Confirm
+        </button>
     </div>
 
     {#if lastGloss}
