@@ -14,13 +14,6 @@ import orjson
 from anki.collection import Collection
 from anki.decks import DeckId
 
-from .events import (
-    apply_missed_targets,
-    bump_assistant_used_lexemes,
-    bump_user_used_lexemes,
-    record_event_from_payload,
-    record_turn_event,
-)
 from .export import export_conversation_telemetry
 from .gateway import (
     ConversationGateway,
@@ -38,6 +31,7 @@ from .plan_reply import (
 from .planner import ConversationPlanner
 from .prompts import SYSTEM_ROLE
 from .redaction import redact_text
+from .session import ConversationSession
 from .settings import (
     ConversationSettings,
     RedactionLevel,
@@ -279,22 +273,6 @@ def _cmd_run(args: argparse.Namespace) -> None:
                 raise SystemExit(f"deck not found: {deck_name}")
             deck_ids.append(DeckId(did))
 
-        snapshot = build_deck_snapshot(
-            col,
-            deck_ids,
-            lexeme_field_index=settings.lexeme_field_index,
-            gloss_field_index=settings.gloss_field_index,
-            max_items=settings.snapshot_max_items,
-        )
-        planner = ConversationPlanner(snapshot)
-        telemetry = ConversationTelemetryStore(col)
-        session_id = telemetry.start_session(list(snapshot.deck_ids))
-
-        turns = _load_script(Path(args.script))
-        lexeme_set = {item.lexeme for item in snapshot.items}
-        snapshot_item_ids = [str(item.item_id) for item in snapshot.items]
-        mastery_cache = telemetry.load_mastery_cache(snapshot_item_ids)
-
         provider: ConversationProvider
         if settings.provider == "fake":
             scripted = []
@@ -312,98 +290,37 @@ def _cmd_run(args: argparse.Namespace) -> None:
                     "OpenAI API key missing; set OPENAI_API_KEY or provide --api-key-file"
                 )
             provider = OpenAIConversationProvider(api_key=api_key, model=settings.model)
-        gateway = ConversationGateway(
-            provider=provider, max_rewrites=settings.max_rewrites
+
+        session = ConversationSession.start(
+            col=col,
+            deck_ids=deck_ids,
+            settings=settings,
+            provider=provider,
+            topic_id=args.topic,
         )
 
-        state = planner.initial_state(
-            summary="Conversation practice", topic_id=args.topic
-        )
+        turns = _load_script(Path(args.script))
         transcript: list[dict[str, Any]] = []
         for turn in turns:
-            redacted = redact_text(turn.user_text_ko, settings.redaction_level)
-            user_input = UserInput(text_ko=redacted.text, confidence=turn.confidence)  # type: ignore[arg-type]
-            conv_state, constraints, instructions = planner.plan_turn(
-                state, user_input, mastery=mastery_cache
-            )
-            instructions = GenerationInstructions(
-                conversation_goal=instructions.conversation_goal,
-                tone=instructions.tone,
-                register=instructions.register,
-                provide_follow_up_question=instructions.provide_follow_up_question,
-                provide_micro_feedback=instructions.provide_micro_feedback,
-                provide_suggested_english_intent=instructions.provide_suggested_english_intent,
-                max_corrections=instructions.max_corrections,
-                safe_mode=settings.safe_mode,
-            )
-            request = ConversationRequest(
-                system_role=SYSTEM_ROLE,
-                conversation_state=conv_state,
-                user_input=user_input,
-                language_constraints=constraints,
-                generation_instructions=instructions,
-            )
-            response = gateway.run_turn(request=request)
-
-            # Deterministic usage signals from text-only mode (no UI required).
-            bump_user_used_lexemes(
-                telemetry=telemetry,
-                mastery_cache=mastery_cache,
-                lexeme_set=lexeme_set,
-                user_input=user_input,
-            )
-            bump_assistant_used_lexemes(
-                telemetry=telemetry,
-                mastery_cache=mastery_cache,
-                lexeme_set=lexeme_set,
-                response=response,
+            result = session.run_turn(
+                text_ko=turn.user_text_ko, confidence=turn.confidence
             )
 
             if turn.events:
                 for event in turn.events:
-                    record_event_from_payload(
-                        telemetry=telemetry,
-                        mastery_cache=mastery_cache,
-                        session_id=session_id,
-                        turn_index=state.turn_index,
-                        payload=event,
-                    )
-
-            record_turn_event(
-                telemetry=telemetry,
-                session_id=session_id,
-                turn_index=state.turn_index,
-                user_input=user_input,
-                response=response,
-            )
+                    session.log_event(event)
             transcript.append(
                 {
-                    "turn_index": state.turn_index,
-                    "user_input": user_input.text_ko,
-                    "assistant": response.to_json_dict(),
+                    "turn_index": session.state.turn_index,
+                    "user_input": result.user_input.text_ko,
+                    "assistant": result.response.to_json_dict(),
                 }
             )
-            state.last_assistant_turn_ko = response.assistant_reply_ko
-            missed = planner.observe_turn(
-                state,
-                constraints=constraints,
-                user_input=user_input,
-                assistant_reply_ko=response.assistant_reply_ko,
-                follow_up_question_ko=response.follow_up_question_ko,
-            )
-            apply_missed_targets(
-                telemetry=telemetry,
-                mastery_cache=mastery_cache,
-                missed_item_ids=missed,
-            )
-
-        wrap = compute_session_wrap(snapshot=snapshot, mastery=mastery_cache)
-        summary = {"turns": len(turns), "wrap": wrap}
-        telemetry.end_session(session_id, summary=summary)
+        wrap = session.end(summary={"turns": len(turns)})
         print(
             orjson.dumps(
                 {
-                    "session_id": session_id,
+                    "session_id": session.session_id,
                     "transcript": transcript,
                     "wrap": wrap,
                 }

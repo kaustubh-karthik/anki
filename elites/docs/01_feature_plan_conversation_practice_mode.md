@@ -224,6 +224,12 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 - Added opt-in redaction for telemetry exports (defaulting to the saved redaction level) and unit tests to verify exported JSON is redacted deterministically.
 - Ran `./ninja check` successfully (format/lints/mypy/pytest).
 
+### 2025-12-18 — Codex
+
+- Added a reusable backend `ConversationSession` controller (`pylib/anki/conversation/session.py`) to centralize per-turn orchestration (planner → gateway → telemetry) and keep CLI/desktop integration consistent.
+- Refactored `anki-conversation run` to use `ConversationSession` and added unit coverage for running a full session without any UI.
+- Ran `./ninja check` successfully (full build including aqt tests).
+
 ## Open Issues
 
 - [ ] Decide on default local dictionary source and licensing (offline-first, redistributable).

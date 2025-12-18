@@ -23,6 +23,7 @@ from .plan_reply import (
 )
 from .planner import ConversationPlanner, PlannerState
 from .redaction import redact_text
+from .session import ConversationSession
 from .settings import (
     CONFIG_KEY,
     ConversationSettings,
@@ -65,6 +66,7 @@ __all__ = [
     "OpenAIResponsesJsonClient",
     "read_api_key_file",
     "resolve_openai_api_key",
+    "ConversationSession",
     "apply_suggested_cards",
     "build_deck_snapshot",
     "compute_session_wrap",

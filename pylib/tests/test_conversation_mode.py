@@ -19,6 +19,7 @@ from anki.conversation.plan_reply import (
 )
 from anki.conversation.planner import ConversationPlanner
 from anki.conversation.redaction import redact_text
+from anki.conversation.session import ConversationSession
 from anki.conversation.settings import (
     ConversationSettings,
     RedactionLevel,
@@ -249,6 +250,60 @@ def test_cli_run_is_fully_automatable_and_writes_db(tmp_path) -> None:
             col.close()
         except Exception:
             pass
+
+
+def test_conversation_session_controller_runs_without_ui() -> None:
+    class _ScriptedProvider(ConversationProvider):
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def generate(self, *, request: ConversationRequest) -> dict[str, object]:
+            self.calls += 1
+            return {
+                "assistant_reply_ko": "의자 있어요.",
+                "follow_up_question_ko": "뭐예요?",
+                "micro_feedback": {"type": "none", "content_ko": "", "content_en": ""},
+                "suggested_user_intent_en": None,
+                "targets_used": ["lexeme:의자"],
+                "unexpected_tokens": [],
+            }
+
+    col = getEmptyCol()
+    try:
+        did = col.decks.id("Korean")
+        note = col.newNote()
+        note["Front"] = "의자"
+        note["Back"] = "chair"
+        col.addNote(note)
+        for card in note.cards():
+            card.did = did
+            card.flush()
+
+        settings = ConversationSettings(provider="fake")
+        session = ConversationSession.start(
+            col=col,
+            deck_ids=[DeckId(did)],
+            settings=settings,
+            provider=_ScriptedProvider(),
+        )
+        result = session.run_turn(text_ko="의자", confidence="guessing")
+        assert result.response.assistant_reply_ko
+        session.log_event({"type": "dont_know", "token": "의자"})
+        session.end(summary={"turns": 1})
+
+        assert col.db.scalar("select count() from elites_conversation_sessions") == 1
+        assert col.db.scalar("select count() from elites_conversation_events") == 2
+        mastery_json = col.db.scalar(
+            "select mastery_json from elites_conversation_items where item_id=?",
+            "lexeme:의자",
+        )
+        assert isinstance(mastery_json, str)
+        mastery = json.loads(mastery_json)
+        assert mastery["dont_know"] == 1
+        assert mastery["user_used"] == 1
+        assert mastery["assistant_used"] == 1
+    finally:
+        col.close()
 
 
 def test_snapshot_extracts_lexemes_from_selected_deck() -> None:
