@@ -28,15 +28,15 @@ from .snapshot import build_deck_snapshot
 from .suggest import apply_suggested_cards, suggestions_from_wrap
 from .telemetry import ConversationTelemetryStore
 from .types import ConversationRequest, GenerationInstructions, UserInput
-from .validation import tokenize_for_validation
 from .wrap import compute_session_wrap
-
-SYSTEM_ROLE = (
-    "You are a Korean conversation partner for a learner. "
-    "Speak naturally, concisely, and politely. "
-    "Follow the provided constraints exactly. "
-    "Return output strictly in the requested JSON format, and no prose outside it."
+from .events import (
+    apply_missed_targets,
+    bump_assistant_used_lexemes,
+    bump_user_used_lexemes,
+    record_event_from_payload,
+    record_turn_event,
 )
+from .prompts import SYSTEM_ROLE
 
 
 class FakeConversationProvider(ConversationProvider):
@@ -242,87 +242,35 @@ def _cmd_run(args: argparse.Namespace) -> None:
             response = gateway.run_turn(request=request)
 
             # Deterministic usage signals from text-only mode (no UI required).
-            for token in tokenize_for_validation(user_input.text_ko):
-                if token in lexeme_set:
-                    telemetry.bump_item_cached(
-                        mastery_cache,
-                        item_id=f"lexeme:{token}",
-                        kind="lexeme",
-                        value=token,
-                        deltas={"user_used": 1},
-                    )
-                    if user_input.confidence == "unsure":
-                        telemetry.bump_item_cached(
-                            mastery_cache,
-                            item_id=f"lexeme:{token}",
-                            kind="lexeme",
-                            value=token,
-                            deltas={"used_unsure": 1},
-                        )
-                    elif user_input.confidence == "guessing":
-                        telemetry.bump_item_cached(
-                            mastery_cache,
-                            item_id=f"lexeme:{token}",
-                            kind="lexeme",
-                            value=token,
-                            deltas={"used_guessing": 1},
-                        )
-            for token in tokenize_for_validation(response.assistant_reply_ko):
-                if token in lexeme_set:
-                    telemetry.bump_item_cached(
-                        mastery_cache,
-                        item_id=f"lexeme:{token}",
-                        kind="lexeme",
-                        value=token,
-                        deltas={"assistant_used": 1},
-                    )
+            bump_user_used_lexemes(
+                telemetry=telemetry,
+                mastery_cache=mastery_cache,
+                lexeme_set=lexeme_set,
+                user_input=user_input,
+            )
+            bump_assistant_used_lexemes(
+                telemetry=telemetry,
+                mastery_cache=mastery_cache,
+                lexeme_set=lexeme_set,
+                response=response,
+            )
 
             if turn.events:
                 for event in turn.events:
-                    etype = event.get("type")
-                    token = event.get("token")
-                    if isinstance(etype, str):
-                        telemetry.log_event(
-                            session_id=session_id,
-                            turn_index=state.turn_index,
-                            event_type=etype,
-                            payload=event,
-                        )
-                        if isinstance(token, str) and token:
-                            if etype in ("dont_know", "practice_again", "mark_confusing"):
-                                telemetry.bump_item_cached(
-                                    mastery_cache,
-                                    item_id=f"lexeme:{token}",
-                                    kind="lexeme",
-                                    value=token,
-                                    deltas={etype: 1},
-                                )
-                        if etype == "lookup":
-                            ms = event.get("ms")
-                            if isinstance(ms, int) and ms >= 0 and isinstance(token, str) and token:
-                                telemetry.bump_item_cached(
-                                    mastery_cache,
-                                    item_id=f"lexeme:{token}",
-                                    kind="lexeme",
-                                    value=token,
-                                    deltas={"lookup_count": 1, "lookup_ms_total": ms},
-                                )
-                        if etype == "repair_move":
-                            move = event.get("move")
-                            if isinstance(move, str) and move:
-                                telemetry.bump_item_cached(
-                                    mastery_cache,
-                                    item_id=f"repair:{move}",
-                                    kind="repair",
-                                    value=move,
-                                    deltas={"used": 1},
-                                )
+                    record_event_from_payload(
+                        telemetry=telemetry,
+                        mastery_cache=mastery_cache,
+                        session_id=session_id,
+                        turn_index=state.turn_index,
+                        payload=event,
+                    )
 
-            telemetry.log_event(
+            record_turn_event(
+                telemetry=telemetry,
                 session_id=session_id,
                 turn_index=state.turn_index,
-                event_type="turn",
-                payload={"user": user_input.text_ko, "assistant": response.to_json_dict()},
+                user_input=user_input,
+                response=response,
             )
             transcript.append(
                 {
@@ -339,16 +287,11 @@ def _cmd_run(args: argparse.Namespace) -> None:
                 assistant_reply_ko=response.assistant_reply_ko,
                 follow_up_question_ko=response.follow_up_question_ko,
             )
-            for item_id in missed:
-                if item_id.startswith("lexeme:"):
-                    token = item_id.removeprefix("lexeme:")
-                    telemetry.bump_item_cached(
-                        mastery_cache,
-                        item_id=item_id,
-                        kind="lexeme",
-                        value=token,
-                        deltas={"missed_target": 1},
-                    )
+            apply_missed_targets(
+                telemetry=telemetry,
+                mastery_cache=mastery_cache,
+                missed_item_ids=missed,
+            )
 
         wrap = compute_session_wrap(snapshot=snapshot, mastery=mastery_cache)
         summary = {"turns": len(turns), "wrap": wrap}

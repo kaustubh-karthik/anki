@@ -66,83 +66,84 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 **Goal:** Query selected deck(s) and materialize a deterministic snapshot with FSRS + lexical metadata.
 **Files Touched:**
 - `pylib/anki/conversation/snapshot.py`
-- `tests/conversation/test_snapshot.py`
+- `pylib/tests/test_conversation_mode.py`
 **Details:**
 - Reuse `Collection` APIs to gather cards/notes/tags.
 - Map note fields to lexemes (configurable field mapping) and attach FSRS stats.
 - Cache snapshot per session; expose as pure data for planner.
-**Status:** 🟨 In progress
+**Status:** ✅ Completed
 
 ### Step 3: Planner core module
 **Goal:** Build deterministic planner that consumes snapshot + telemetry to emit turn-level constraints.
 **Files Touched:**
 - `pylib/anki/conversation/planner.py`
-- `tests/conversation/test_planner.py`
+- `pylib/tests/test_conversation_mode.py`
 **Details:**
 - Implement scoring that balances FSRS stability, recency, and conversation mastery signals.
 - Emit `must_target`, `allowed_support`, `allowed_grammar`, and forbidden flags.
 - Support micro-spacing logic (ensure reappearance inside session) and avoidance tracking.
-**Status:** 🟨 In progress
+**Status:** ✅ Completed
 
 ### Step 4: Telemetry store + mastery metrics
 **Goal:** Persist per-lexeme/grammar telemetry and per-session summaries without altering user notes.
 **Files Touched:**
 - `pylib/anki/conversation/telemetry.py`
-- `pylib/anki/dbschema.py`
-- `tests/conversation/test_telemetry.py`
+- `pylib/tests/test_conversation_mode.py`
 **Details:**
 - Add namespaced tables (e.g., `conversation_events`, `conversation_mastery`).
 - Track hover vs. click vs. double-tap vs. confidence signals; avoid counting hover-only curiosity.
 - Provide aggregation helpers for planner and end-of-session wrap.
-**Status:** 🟨 In progress
+**Status:** ✅ Completed
 
 ### Step 5: LLM gateway + provider abstraction
 **Goal:** Enforce JSON contract, abstract LLM vendors, and provide rewrite loop for unexpected tokens.
 **Files Touched:**
 - `pylib/anki/conversation/gateway.py`
-- `ts/src/conversation/api.ts`
-- `tests/conversation/test_gateway.py`
+- `pylib/anki/conversation/openai.py`
+- `pylib/tests/test_conversation_mode.py`
 **Details:**
 - Compose prompt using system role + planner payload + conversation summary.
 - Validate responses against JSON schema; if `unexpected_tokens` non-empty, auto-request rewrite or annotate.
 - Provide configurable provider interface (OpenAI/Anthropic/local) with rate limiting + logging.
-**Status:** 🟨 In progress
+**Status:** ✅ Completed
 
-### Step 6: React chat UI + Qt integration
+### Step 6: Desktop UI scaffold (Svelte + Qt)
 **Goal:** Build flow-mode chat UI with token interactions rendered inside Qt WebEngine.
 **Files Touched:**
-- `ts/src/conversation/components/*`
 - `qt/aqt/conversation.py`
-- `ts/tests/conversation/*`
+- `ts/routes/conversation/+page.svelte`
 **Details:**
 - Implement hover (gloss), click (don't know), double-tap (practice later) interactions.
 - Add progressive disclosure controls (Hint, Explain, Translate, Plan Reply scaffolding panel).
 - Hook telemetry events to Qt bridge and maintain latency budget.
-**Status:** ⬜ Not started
+**Status:** 🟨 In progress
 
 ### Step 7: Session lifecycle + wrap-up
 **Goal:** Manage session start/end, deck selection UI, and wrap-up summary with suggested cards.
 **Files Touched:**
-- `qt/aqt/conversation_dialog.py`
-- `ts/src/conversation/session.ts`
-- `tests/conversation/test_session.py`
+- `pylib/anki/conversation/wrap.py`
+- `pylib/anki/conversation/suggest.py`
+- `pylib/anki/conversation/cli.py`
+- `pylib/tests/test_conversation_mode.py`
 **Details:**
 - Deck picker that builds snapshot; session controller that sequences planner/gateway/UI loop.
 - End session summary (3 strengths, 2 reinforcements, 1 suggested card) plus optional "Add to deck" flow.
 - Persist session summary + integrate with FSRS tagging (without auto-editing cards unless user confirms).
-**Status:** ⬜ Not started
+**Status:** 🟨 In progress
 
 ### Step 8: Privacy, settings, and telemetry exports
 **Goal:** Provide settings UI and guardrails for data sharing, offline mode, and logging.
 **Files Touched:**
-- `qt/aqt/preferences.py`
 - `pylib/anki/conversation/settings.py`
-- `docs/design/conversation_privacy.md`
+- `pylib/anki/conversation/redaction.py`
+- `pylib/anki/conversation/export.py`
+- `pylib/anki/conversation/cli.py`
+- `pylib/tests/test_conversation_mode.py`
 **Details:**
 - Let users choose LLM provider, API keys, redaction levels, offline dictionary packs.
 - Document what data leaves device; support "local-only" warning/fallback.
 - Add export tooling for telemetry (for debugging) respecting privacy toggles.
-**Status:** ⬜ Not started
+**Status:** 🟨 In progress
 
 ## Progress Log
 
@@ -170,14 +171,17 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 - Added persisted conversation settings stored in collection config (CLI get/set) and implemented deterministic missed-target detection to penalize avoidance in mastery signals.
 - Added deterministic topic IDs (backend) and threaded optional `topic_id` through CLI/Qt session start into planner state, keeping topic control client-side.
 
+### 2025-12-18 — Codex
+- Refactored event logging + mastery updates into `pylib/anki/conversation/events.py` and moved the shared system role prompt to `pylib/anki/conversation/prompts.py`.
+- Re-ran backend pytest suite (no-human-input): `112 passed`.
+
 ## Open Issues
 
-- [ ] Confirm long-term storage location for conversation telemetry (separate SQLite table vs. JSONB field).
-- [ ] Decide on default local dictionary source and licensing.
+- [ ] Decide on default local dictionary source and licensing (offline-first, redistributable).
 - [ ] Clarify how planner handles multi-deck selection with conflicting templates.
 - [ ] Evaluate whether FSRS mastery signals should influence core scheduler or stay scoped to conversation mode.
-- [ ] Add FSRS-aware scoring to the planner (stability/difficulty/recency) instead of the current deterministic-first-N lexeme heuristic.
-- [ ] Define and persist per-lexeme mastery aggregates in `elites_conversation_items` (currently only sessions/events are written).
+- [ ] Expand grammar/collocation catalog beyond the current minimal built-ins.
+- [ ] Make UI/CLI key management use persisted settings instead of reading `gpt-api.txt` directly (keep file as optional dev convenience).
 
 ## Agent Instructions (MANDATORY)
 

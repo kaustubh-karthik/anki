@@ -23,7 +23,8 @@ from anki.conversation import (
     PlanReplyRequest,
     OpenAIPlanReplyProvider,
 )
-from anki.conversation.cli import SYSTEM_ROLE
+from anki.conversation.events import apply_missed_targets, record_event_from_payload
+from anki.conversation.prompts import SYSTEM_ROLE
 from anki.conversation.types import ConversationRequest, GenerationInstructions, UserInput
 from aqt.qt import *
 from aqt.utils import disable_help_button, restoreGeom, saveGeom
@@ -181,41 +182,26 @@ class ConversationDialog(QDialog):
             assistant_reply_ko=response.assistant_reply_ko,
             follow_up_question_ko=response.follow_up_question_ko,
         )
-        for item_id in missed:
-            if item_id.startswith("lexeme:"):
-                token = item_id.removeprefix("lexeme:")
-                self._session.telemetry.bump_item_cached(
-                    self._session.mastery_cache,
-                    item_id=item_id,
-                    kind="lexeme",
-                    value=token,
-                    deltas={"missed_target": 1},
-                )
+        apply_missed_targets(
+            telemetry=self._session.telemetry,
+            mastery_cache=self._session.mastery_cache,
+            missed_item_ids=missed,
+        )
         return {"ok": True, "response": response.to_json_dict()}
 
     def _log_event(self, payload: dict[str, Any]) -> dict[str, Any]:
         if self._session is None:
             return {"ok": False, "error": "session not started"}
-        etype = payload.get("type")
-        if not isinstance(etype, str):
-            return {"ok": False, "error": "invalid event"}
-        self._session.telemetry.log_event(
-            session_id=self._session.session_id,
-            turn_index=self._session.state.turn_index,
-            event_type=etype,
-            payload=payload,
-        )
-        # mirror CLI mastery counters
-        if etype in ("dont_know", "practice_again", "mark_confusing"):
-            token = payload.get("token")
-            if isinstance(token, str) and token:
-                self._session.telemetry.bump_item_cached(
-                    self._session.mastery_cache,
-                    item_id=f"lexeme:{token}",
-                    kind="lexeme",
-                    value=token,
-                    deltas={etype: 1},
-                )
+        try:
+            record_event_from_payload(
+                telemetry=self._session.telemetry,
+                mastery_cache=self._session.mastery_cache,
+                session_id=self._session.session_id,
+                turn_index=self._session.state.turn_index,
+                payload=payload,
+            )
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
         return {"ok": True}
 
     def _get_wrap(self) -> dict[str, Any]:
