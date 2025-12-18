@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 from dataclasses import dataclass
 from threading import Lock
@@ -44,6 +45,7 @@ from anki.conversation.settings import (
 )
 from anki.conversation.types import (
     ConversationRequest,
+    ConversationResponse,
     GenerationInstructions,
     UserInput,
 )
@@ -245,18 +247,34 @@ class ConversationDialog(QDialog):
         if self._session is None:
             return {"ok": False, "error": "session not started"}
 
+        turn_context: dict[str, Any] | None = None
+        turn_request: ConversationRequest | None = None
+        if kind == "turn":
+            prepared = self._prepare_turn_for_async(payload)
+            if not prepared.get("ok"):
+                return prepared
+            turn_request = prepared["request"]
+            turn_context = prepared["context"]
+
         with self._job_lock:
             if self._busy:
                 return {"ok": False, "error": "busy"}
             self._busy = True
             job_id = str(uuid4())
-            self._jobs[job_id] = {"status": "pending", "kind": kind}
+            self._jobs[job_id] = {
+                "status": "pending",
+                "kind": kind,
+                "turn_context": turn_context,
+            }
 
         def run() -> dict[str, Any]:
             try:
-                self._flush_queued_events()
                 if kind == "turn":
-                    return self._run_turn(payload)
+                    assert turn_request is not None
+                    if self._session is None or self._session.gateway is None:
+                        return {"ok": False, "error": "session not started"}
+                    response = self._session.gateway.run_turn(request=turn_request)
+                    return {"ok": True, "response": response.to_json_dict()}
                 if kind == "translate":
                     return self._translate(payload)
                 if kind == "plan_reply":
@@ -274,6 +292,18 @@ class ConversationDialog(QDialog):
                 result = fut.result()
             except Exception as e:
                 result = {"ok": False, "error": str(e) or type(e).__name__}
+            if (
+                kind == "turn"
+                and result.get("ok") is True
+                and isinstance(result.get("response"), dict)
+            ):
+                try:
+                    self._finalize_turn_for_async(
+                        turn_context=turn_context,
+                        response_json=result["response"],
+                    )
+                except Exception as e:
+                    result = {"ok": False, "error": str(e) or type(e).__name__}
             with self._job_lock:
                 job = self._jobs.get(job_id)
                 if job is not None:
@@ -281,8 +311,77 @@ class ConversationDialog(QDialog):
                     job["result"] = result
                 self._busy = False
 
-        self.mw.taskman.run_in_background(run, on_done)
+        self.mw.taskman.run_in_background(run, on_done, uses_collection=False)
         return {"ok": True, "job_id": job_id}
+
+    def _prepare_turn_for_async(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if self._session is None:
+            return {"ok": False, "error": "session not started"}
+        if self._session.gateway is None:
+            return {"ok": False, "error": "LLM provider not configured"}
+        text = payload.get("text_ko")
+        if not isinstance(text, str):
+            return {"ok": False, "error": "invalid text"}
+        confidence = payload.get("confidence")
+        if confidence not in (None, "confident", "unsure", "guessing"):
+            confidence = None
+        redacted = redact_text(text, self._session.settings.redaction_level)
+        user_input = UserInput(text_ko=redacted.text, confidence=confidence)
+        self._flush_queued_events()
+        conv_state, constraints, instructions = self._session.planner.plan_turn(
+            self._session.state, user_input, mastery=self._session.mastery_cache
+        )
+        instructions = GenerationInstructions(
+            conversation_goal=instructions.conversation_goal,
+            tone=instructions.tone,
+            register=instructions.register,
+            provide_follow_up_question=True,
+            provide_micro_feedback=True,
+            provide_suggested_english_intent=True,
+            max_corrections=1,
+            safe_mode=self._session.settings.safe_mode,
+        )
+        request = ConversationRequest(
+            system_role=SYSTEM_ROLE,
+            conversation_state=conv_state,
+            user_input=user_input,
+            language_constraints=constraints,
+            generation_instructions=instructions,
+        )
+        context = {"constraints": constraints, "user_input": user_input}
+        return {"ok": True, "request": request, "context": context}
+
+    def _finalize_turn_for_async(
+        self, *, turn_context: dict[str, Any] | None, response_json: dict[str, Any]
+    ) -> None:
+        if self._session is None:
+            return
+        if not turn_context:
+            return
+        constraints = turn_context.get("constraints")
+        user_input = turn_context.get("user_input")
+        if constraints is None or user_input is None:
+            return
+        from anki.conversation.types import LanguageConstraints
+
+        if not isinstance(constraints, LanguageConstraints):
+            return
+        if not isinstance(user_input, UserInput):
+            return
+        response = ConversationResponse.from_json_dict(response_json)
+        self._session.state.last_assistant_turn_ko = response.assistant_reply_ko
+        missed = self._session.planner.observe_turn(
+            self._session.state,
+            constraints=constraints,
+            user_input=user_input,
+            assistant_reply_ko=response.assistant_reply_ko,
+            follow_up_question_ko=response.follow_up_question_ko,
+        )
+        apply_missed_targets(
+            telemetry=self._session.telemetry,
+            mastery_cache=self._session.mastery_cache,
+            missed_item_ids=missed,
+        )
 
     def _poll_job(self, payload: dict[str, Any]) -> dict[str, Any]:
         job_id = payload.get("job_id")
@@ -550,9 +649,10 @@ class ConversationDialog(QDialog):
         gateway = PlanReplyGateway(
             provider=provider, max_rewrites=self._session.settings.max_rewrites
         )
-        # reuse planner constraints for current state
+        # reuse planner constraints for current state, without advancing the session
+        temp_state = copy.deepcopy(self._session.state)
         conv_state, constraints, instructions = self._session.planner.plan_turn(
-            self._session.state,
+            temp_state,
             UserInput(text_ko=""),
             mastery=self._session.mastery_cache,
         )

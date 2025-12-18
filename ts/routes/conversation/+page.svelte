@@ -685,6 +685,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             on:keydown={(e) => e.key === "Enter" && send()}
         />
         <button on:click={send} disabled={inFlight}>Send</button>
+        {#if inFlight}
+            <span class="gloss">(waiting…)</span>
+        {/if}
     </div>
 
     <div class="row">
