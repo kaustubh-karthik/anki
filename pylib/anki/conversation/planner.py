@@ -60,6 +60,19 @@ BASE_ALLOWED_SUPPORT: tuple[str, ...] = (
     "내일",
     "좋아요",
     "싫어요",
+    "안",
+    "못",
+    "해주세요",
+    "주세요",
+    "해요",
+    "해",
+    "했어요",
+    "할까요",
+    "싶어요",
+    "돼",
+    "되요",
+    "돼요",
+    "맞아",
 )
 
 
@@ -164,7 +177,7 @@ class ConversationPlanner:
             must_target=tuple(must_targets),
             allowed_support=allowed_support,
             allowed_grammar=select_grammar_patterns(
-                must_targets=tuple(t.surface_forms[0] for t in must_targets)
+                must_targets=tuple(sf for t in must_targets for sf in t.surface_forms)
             ),
             forbidden=ForbiddenConstraints(introduce_new_vocab=True, sentence_length_max=20),
         )

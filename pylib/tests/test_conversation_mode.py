@@ -859,6 +859,34 @@ def test_planner_can_emit_collocation_targets() -> None:
         col.close()
 
 
+def test_planner_emits_new_grammar_and_collocation_patterns() -> None:
+    col = getEmptyCol()
+    try:
+        did = col.decks.id("Korean")
+        col.decks.select(DeckId(did))
+        note = col.newNote()
+        note["Front"] = "안"
+        note["Back"] = "not"
+        col.addNote(note)
+        for card in note.cards():
+            card.did = did
+            card.flush()
+
+        snapshot = build_deck_snapshot(col, [DeckId(did)], include_fsrs_metrics=False)
+        planner = ConversationPlanner(snapshot)
+        state = planner.initial_state(summary="x")
+        _, constraints, _ = planner.plan_turn(
+            state,
+            UserInput(text_ko="응"),
+            must_target_count=2,
+            mastery={},
+        )
+        assert any(t.id == ItemId("colloc:~하면_안_돼요") for t in constraints.must_target)
+        assert any("안 돼요" in gp.pattern for gp in constraints.allowed_grammar)
+    finally:
+        col.close()
+
+
 def test_collocation_requires_all_tokens_to_count_used() -> None:
     col = getEmptyCol()
     try:

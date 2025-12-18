@@ -23,6 +23,36 @@ DEFAULT_KO_GRAMMAR: tuple[GrammarItem, ...] = (
         pattern="~해도 돼요",
         triggers=("돼요",),
     ),
+    GrammarItem(
+        id=ItemId("gram:n1에_있어요"),
+        pattern="N1에 N2이/가 있어요",
+        triggers=("있어요",),
+    ),
+    GrammarItem(
+        id=ItemId("gram:n1에_없어요"),
+        pattern="N1에 N2이/가 없어요",
+        triggers=("없어요",),
+    ),
+    GrammarItem(
+        id=ItemId("gram:n은_어디에_있어요"),
+        pattern="N은/는 어디에 있어요?",
+        triggers=("어디",),
+    ),
+    GrammarItem(
+        id=ItemId("gram:~하면_안_돼요"),
+        pattern="~하면 안 돼요",
+        triggers=("안", "돼요"),
+    ),
+    GrammarItem(
+        id=ItemId("gram:~할까요"),
+        pattern="~할까요?",
+        triggers=("할까요",),
+    ),
+    GrammarItem(
+        id=ItemId("gram:~하고_싶어요"),
+        pattern="~하고 싶어요",
+        triggers=("싶어요",),
+    ),
 )
 
 
@@ -40,4 +70,3 @@ def select_grammar_patterns(
             if len(selected) >= max_patterns:
                 break
     return tuple(selected)
-

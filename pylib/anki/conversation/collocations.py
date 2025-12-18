@@ -24,6 +24,16 @@ DEFAULT_KO_COLLOCATIONS: tuple[Collocation, ...] = (
         tokens=("해도", "돼요"),
         triggers=("돼요",),
     ),
+    Collocation(
+        id=ItemId("colloc:~하면_안_돼요"),
+        tokens=("안", "돼요"),
+        triggers=("안", "돼요"),
+    ),
+    Collocation(
+        id=ItemId("colloc:~하고_싶어요"),
+        tokens=("하고", "싶어요"),
+        triggers=("싶어요",),
+    ),
 )
 
 
@@ -46,4 +56,3 @@ def select_collocation_targets(
             if len(selected) >= max_targets:
                 break
     return tuple(selected)
-

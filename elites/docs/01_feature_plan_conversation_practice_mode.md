@@ -182,6 +182,9 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 ### 2025-12-18 — Codex
 - Expanded planner scoring to incorporate additional mastery signals (`missed_target`, `lookup_*`) and FSRS `difficulty` (small weight), and added regression tests for the new prioritization behavior.
 
+### 2025-12-18 — Codex
+- Expanded built-in Korean grammar/collocation catalogs and added regression tests to ensure the planner emits the new patterns deterministically.
+
 ## Open Issues
 
 - [ ] Decide on default local dictionary source and licensing (offline-first, redistributable).
