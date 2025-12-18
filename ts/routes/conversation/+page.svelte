@@ -37,6 +37,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let replyOptions: string[] = [];
     let applyDeck = "Korean";
     let lastWrap: any = null;
+    let showPlanReply = false;
 
     onMount(() => {
         if (!bridgeCommandsAvailable()) {
@@ -229,6 +230,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 replyOptions = resp.plan?.options_ko ?? [];
             },
         );
+    }
+
+    function usePlannedReply(textKo: string): void {
+        message = textKo;
     }
 
     function applySuggestions(): void {
@@ -453,19 +458,31 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     {/if}
 
     <div class="row">
-        <label for="intent">English intent</label>
-        <input
-            id="intent"
-            bind:value={intentEn}
-            placeholder="What do you want to say?"
-        />
-        <button on:click={planReply}>Plan Reply</button>
+        <button type="button" on:click={() => (showPlanReply = !showPlanReply)}>
+            {showPlanReply ? "Hide" : "Show"} Plan my reply
+        </button>
     </div>
-    {#if replyOptions.length}
+    {#if showPlanReply}
         <div class="gloss">
-            {#each replyOptions as opt}
-                <div>{opt}</div>
-            {/each}
+            <div class="row">
+                <label for="intent">English intent</label>
+                <input
+                    id="intent"
+                    bind:value={intentEn}
+                    placeholder="What do you want to say?"
+                />
+                <button on:click={planReply}>Generate</button>
+            </div>
+            {#if replyOptions.length}
+                {#each replyOptions as opt}
+                    <div class="row">
+                        <button type="button" on:click={() => usePlannedReply(opt)}>
+                            Use
+                        </button>
+                        <div>{opt}</div>
+                    </div>
+                {/each}
+            {/if}
         </div>
     {/if}
 
