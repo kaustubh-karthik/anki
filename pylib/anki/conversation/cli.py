@@ -230,6 +230,26 @@ def _cmd_run(args: argparse.Namespace) -> None:
                                     value=token,
                                     deltas={etype: 1},
                                 )
+                        if etype == "lookup":
+                            ms = event.get("ms")
+                            if isinstance(ms, int) and ms >= 0 and isinstance(token, str) and token:
+                                telemetry.bump_item_cached(
+                                    mastery_cache,
+                                    item_id=f"lexeme:{token}",
+                                    kind="lexeme",
+                                    value=token,
+                                    deltas={"lookup_count": 1, "lookup_ms_total": ms},
+                                )
+                        if etype == "repair_move":
+                            move = event.get("move")
+                            if isinstance(move, str) and move:
+                                telemetry.bump_item_cached(
+                                    mastery_cache,
+                                    item_id=f"repair:{move}",
+                                    kind="repair",
+                                    value=move,
+                                    deltas={"used": 1},
+                                )
 
             telemetry.log_event(
                 session_id=session_id,

@@ -11,7 +11,7 @@ ItemId = NewType("ItemId", str)
 @dataclass(frozen=True, slots=True)
 class MustTarget:
     id: ItemId
-    type: Literal["vocab", "grammar"]
+    type: Literal["vocab", "grammar", "collocation", "repair"]
     surface_forms: tuple[str, ...]
     priority: float
 
@@ -198,4 +198,3 @@ def _required_str(data: JsonDict, key: str) -> str:
     if not isinstance(val, str) or not val:
         raise ValueError(f"{key} must be a non-empty string")
     return val
-

@@ -13,6 +13,7 @@ from .types import (
     UserInput,
 )
 from .validation import tokenize_for_validation
+from .collocations import select_collocation_targets
 from .grammar import select_grammar_patterns
 
 BASE_ALLOWED_SUPPORT: tuple[str, ...] = (
@@ -142,8 +143,19 @@ class ConversationPlanner:
                 )
             )
             used_lexemes.add(lexeme)
+
+        # 3) optionally add collocation targets if there is room
+        lexical_targets = tuple(t.surface_forms[0] for t in must_targets if t.type == "vocab")
+        for colloc in select_collocation_targets(lexical_targets=lexical_targets, max_targets=1):
+            if len(must_targets) >= must_target_count:
+                break
+            must_targets.append(colloc)
         allowed_support = tuple(
-            dict.fromkeys(BASE_ALLOWED_SUPPORT + tuple(lexemes[:allowed_support_count]))
+            dict.fromkeys(
+                BASE_ALLOWED_SUPPORT
+                + tuple(lexemes[:allowed_support_count])
+                + tuple(sf for t in must_targets for sf in t.surface_forms)
+            )
         )
 
         constraints = LanguageConstraints(

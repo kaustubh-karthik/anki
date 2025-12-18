@@ -11,6 +11,7 @@ from anki.httpclient import HttpClient
 
 from .types import ConversationRequest, ConversationResponse
 from .validation import validate_tokens
+from .contract import check_response_against_request
 
 
 class ConversationProvider(ABC):
@@ -107,6 +108,13 @@ class ConversationGateway:
                     )
                     continue
 
+            violation = check_response_against_request(request=request, response=response)
+            if violation is not None:
+                if attempt >= self.max_rewrites:
+                    raise ValueError(f"contract violation: {violation.reason}")
+                request = _rewrite_request(request, reason=f"contract:{violation.reason}")
+                continue
+
             return response
 
         assert last_error is not None
@@ -128,4 +136,3 @@ def _rewrite_request(request: ConversationRequest, *, reason: str) -> Conversati
         language_constraints=request.language_constraints,
         generation_instructions=request.generation_instructions,
     )
-

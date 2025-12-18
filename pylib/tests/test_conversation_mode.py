@@ -94,7 +94,11 @@ def test_cli_run_is_fully_automatable_and_writes_db(tmp_path) -> None:
                 [
                     {
                         "text_ko": "응",
-                        "events": [{"type": "dont_know", "token": "의자"}],
+                        "events": [
+                            {"type": "dont_know", "token": "의자"},
+                            {"type": "lookup", "token": "의자", "ms": 120},
+                            {"type": "repair_move", "move": "clarify_meaning"},
+                        ],
                     }
                 ],
                 ensure_ascii=False,
@@ -155,8 +159,8 @@ def test_cli_run_is_fully_automatable_and_writes_db(tmp_path) -> None:
         opened = Collection(collection_path)
         try:
             assert opened.db.scalar("select count() from elites_conversation_sessions") == 1
-            # one dont_know + one turn event
-            assert opened.db.scalar("select count() from elites_conversation_events") == 2
+            # dont_know + lookup + repair_move + turn
+            assert opened.db.scalar("select count() from elites_conversation_events") == 4
             mastery_json = opened.db.scalar(
                 "select mastery_json from elites_conversation_items where item_id=?",
                 "lexeme:의자",
@@ -165,6 +169,14 @@ def test_cli_run_is_fully_automatable_and_writes_db(tmp_path) -> None:
             mastery = json.loads(mastery_json)
             assert mastery["dont_know"] == 1
             assert mastery["assistant_used"] == 1
+            assert mastery["lookup_count"] == 1
+            assert mastery["lookup_ms_total"] == 120
+            repair = opened.db.scalar(
+                "select mastery_json from elites_conversation_items where item_id=?",
+                "repair:clarify_meaning",
+            )
+            assert isinstance(repair, str)
+            assert json.loads(repair)["used"] == 1
         finally:
             opened.close()
     finally:
@@ -320,6 +332,57 @@ def test_gateway_rewrites_on_unexpected_tokens() -> None:
     resp = gateway.run_turn(request=request)
     assert provider.calls == 2
     assert resp.unexpected_tokens == ()
+
+
+@dataclass
+class _LongReplyProvider(ConversationProvider):
+    def generate(self, *, request: ConversationRequest) -> dict:
+        # produce many tokens to exceed sentence_length_max
+        return {
+            "assistant_reply_ko": "의자 " * 100,
+            "follow_up_question_ko": "뭐예요?",
+            "micro_feedback": {"type": "none", "content_ko": "", "content_en": ""},
+            "suggested_user_intent_en": None,
+            "targets_used": [],
+            "unexpected_tokens": [],
+        }
+
+
+def test_gateway_enforces_sentence_length_max() -> None:
+    provider = _LongReplyProvider()
+    gateway = ConversationGateway(provider=provider, max_rewrites=0)
+    constraints = LanguageConstraints(
+        must_target=(MustTarget(id=ItemId("lexeme:의자"), type="vocab", surface_forms=("의자",), priority=1.0),),
+        allowed_support=("의자", "뭐예요"),
+        allowed_grammar=(),
+    )
+    request = ConversationRequest(
+        system_role="Return JSON only.",
+        conversation_state=ConversationState(summary="x"),
+        user_input=UserInput(text_ko="응"),
+        language_constraints=constraints,
+        generation_instructions=GenerationInstructions(safe_mode=True),
+    )
+    # Tighten sentence length max for test
+    request = ConversationRequest(
+        system_role=request.system_role,
+        conversation_state=request.conversation_state,
+        user_input=request.user_input,
+        language_constraints=LanguageConstraints(
+            must_target=constraints.must_target,
+            allowed_support=constraints.allowed_support,
+            allowed_grammar=constraints.allowed_grammar,
+            forbidden=constraints.forbidden.__class__(
+                introduce_new_vocab=True, sentence_length_max=5
+            ),
+        ),
+        generation_instructions=request.generation_instructions,
+    )
+    try:
+        gateway.run_turn(request=request)
+        assert False, "expected contract violation"
+    except ValueError as e:
+        assert "sentence_length_max" in str(e)
 
 
 def test_mastery_upsert_and_increment() -> None:
@@ -593,5 +656,32 @@ def test_planner_emits_allowed_grammar_patterns() -> None:
             mastery={},
         )
         assert any("사이에" in gp.pattern for gp in constraints.allowed_grammar)
+    finally:
+        col.close()
+
+
+def test_planner_can_emit_collocation_targets() -> None:
+    col = getEmptyCol()
+    try:
+        did = col.decks.id("Korean")
+        col.decks.select(DeckId(did))
+        note = col.newNote()
+        note["Front"] = "사이"
+        note["Back"] = "between"
+        col.addNote(note)
+        for card in note.cards():
+            card.did = did
+            card.flush()
+
+        snapshot = build_deck_snapshot(col, [DeckId(did)], include_fsrs_metrics=False)
+        planner = ConversationPlanner(snapshot)
+        state = planner.initial_state(summary="x")
+        _, constraints, _ = planner.plan_turn(
+            state,
+            UserInput(text_ko="응"),
+            must_target_count=2,
+            mastery={},
+        )
+        assert any(t.type == "collocation" for t in constraints.must_target)
     finally:
         col.close()
