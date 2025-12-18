@@ -19,6 +19,8 @@ export function buildConversationCommand(
     kind:
         | "init"
         | "decks"
+        | "get_settings"
+        | "set_settings"
         | "start"
         | "end"
         | "turn"
@@ -35,6 +37,13 @@ export function buildConversationCommand(
     }
     if (kind === "decks") {
         return "conversation:decks";
+    }
+    if (kind === "get_settings") {
+        return "conversation:get_settings";
+    }
+    if (kind === "set_settings") {
+        const json = payload ? JSON.stringify(payload) : "{}";
+        return `conversation:set_settings:${json}`;
     }
     if (kind === "end") {
         return "conversation:end";

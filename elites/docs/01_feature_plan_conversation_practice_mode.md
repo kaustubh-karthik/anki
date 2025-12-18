@@ -274,6 +274,12 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 - Improved the “Add suggested cards” flow: wrap suggested cards are now shown as a progressive-disclosure panel with a target deck dropdown and an Apply action.
 - Ran `./ninja check` successfully after UI changes.
 
+### 2025-12-18 — Codex
+
+- Added a conversation Settings panel (progressive disclosure) wired to persisted `ConversationSettings` via new bridge commands: `conversation:get_settings` and `conversation:set_settings`.
+- Exposed provider/model/safe_mode/redaction/max_rewrites and snapshot field mapping in a UI that is scriptable and does not store secrets.
+- Ran `./ninja check` successfully after UI changes.
+
 ## Open Issues
 
 - [ ] Decide on default local dictionary source and licensing (offline-first, redistributable).

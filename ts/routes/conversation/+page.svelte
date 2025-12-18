@@ -39,11 +39,20 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let showApplySuggestions = false;
     let lastWrap: any = null;
     let showPlanReply = false;
+    let showSettings = false;
+    let settings: any = null;
+    let noGlossField = false;
 
     onMount(() => {
         if (!bridgeCommandsAvailable()) {
             return;
         }
+        bridgeCommand(buildConversationCommand("get_settings"), (resp: any) => {
+            if (resp?.ok) {
+                settings = resp.settings ?? null;
+                noGlossField = settings?.gloss_field_index == null;
+            }
+        });
         bridgeCommand(buildConversationCommand("decks"), (resp: any) => {
             if (!resp?.ok || !Array.isArray(resp.decks)) {
                 return;
@@ -124,6 +133,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         error = null;
         if (!bridgeCommandsAvailable()) {
             error = "Bridge commands not available.";
+            return;
+        }
+        if (settings?.provider === "fake") {
+            error = "Provider is set to fake; choose local or openai in Settings.";
             return;
         }
         const decks = selectedDecks.filter(Boolean);
@@ -272,6 +285,115 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         <input id="topic" bind:value={topicId} />
         <button on:click={start}>Start</button>
     </div>
+
+    <div class="row">
+        <button type="button" on:click={() => (showSettings = !showSettings)}>
+            {showSettings ? "Hide" : "Show"} Settings
+        </button>
+    </div>
+    {#if showSettings && settings}
+        <div class="gloss">
+            <div class="row">
+                <label for="provider">Provider</label>
+                <select id="provider" bind:value={settings.provider}>
+                    <option value="local">local</option>
+                    <option value="openai">openai</option>
+                    <option value="fake">fake (no LLM)</option>
+                </select>
+                <label for="model">Model</label>
+                <input id="model" bind:value={settings.model} />
+            </div>
+            <div class="row">
+                <label>
+                    <input type="checkbox" bind:checked={settings.safe_mode} />
+                    safe_mode
+                </label>
+                <label for="redaction">Redaction</label>
+                <select id="redaction" bind:value={settings.redaction}>
+                    <option value="none">none</option>
+                    <option value="minimal">minimal</option>
+                    <option value="strict">strict</option>
+                </select>
+                <label for="max_rewrites">max_rewrites</label>
+                <input
+                    id="max_rewrites"
+                    type="number"
+                    bind:value={settings.max_rewrites}
+                    min="0"
+                    max="10"
+                />
+            </div>
+            <div class="row">
+                <label for="lexeme_field_index">lexeme_field_index</label>
+                <input
+                    id="lexeme_field_index"
+                    type="number"
+                    bind:value={settings.lexeme_field_index}
+                    min="0"
+                    max="50"
+                />
+                <label>
+                    <input
+                        type="checkbox"
+                        bind:checked={noGlossField}
+                        on:change={() => {
+                            if (noGlossField) {
+                                settings.gloss_field_index = null;
+                            } else if (settings.gloss_field_index == null) {
+                                settings.gloss_field_index = 1;
+                            }
+                        }}
+                    />
+                    no_gloss_field
+                </label>
+                <label for="gloss_field_index">gloss_field_index</label>
+                <input
+                    id="gloss_field_index"
+                    type="number"
+                    bind:value={settings.gloss_field_index}
+                    min="0"
+                    max="50"
+                    disabled={noGlossField}
+                />
+                <label for="snapshot_max_items">snapshot_max_items</label>
+                <input
+                    id="snapshot_max_items"
+                    type="number"
+                    bind:value={settings.snapshot_max_items}
+                    min="1"
+                    max="50000"
+                />
+            </div>
+            <div class="row">
+                <button
+                    type="button"
+                    on:click={() => {
+                        error = null;
+                        const payload = {
+                            ...settings,
+                            max_rewrites: Number(settings.max_rewrites),
+                            lexeme_field_index: Number(settings.lexeme_field_index),
+                            gloss_field_index:
+                                settings.gloss_field_index == null
+                                    ? null
+                                    : Number(settings.gloss_field_index),
+                            snapshot_max_items: Number(settings.snapshot_max_items),
+                        };
+                        bridgeCommand(
+                            buildConversationCommand("set_settings", payload),
+                            (resp: any) => {
+                                if (!resp?.ok) {
+                                    error = resp?.error ?? "failed to save settings";
+                                }
+                            },
+                        );
+                    }}
+                >
+                    Save Settings
+                </button>
+            </div>
+        </div>
+    {/if}
 
     <div class="chat">
         {#each turns as turn, idx}

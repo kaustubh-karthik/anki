@@ -13,6 +13,16 @@ test("buildConversationCommand decks", () => {
     expect(buildConversationCommand("decks")).toBe("conversation:decks");
 });
 
+test("buildConversationCommand get_settings", () => {
+    expect(buildConversationCommand("get_settings")).toBe("conversation:get_settings");
+});
+
+test("buildConversationCommand set_settings", () => {
+    expect(buildConversationCommand("set_settings", { provider: "local" })).toContain(
+        "conversation:set_settings:",
+    );
+});
+
 test("buildConversationCommand end", () => {
     expect(buildConversationCommand("end")).toBe("conversation:end");
 });

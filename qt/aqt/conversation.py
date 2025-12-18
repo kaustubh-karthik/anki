@@ -31,7 +31,12 @@ from anki.conversation.events import apply_missed_targets, record_event_from_pay
 from anki.conversation.keys import resolve_openai_api_key
 from anki.conversation.prompts import SYSTEM_ROLE
 from anki.conversation.redaction import redact_text
-from anki.conversation.settings import ConversationSettings, load_conversation_settings
+from anki.conversation.settings import (
+    ConversationSettings,
+    RedactionLevel,
+    load_conversation_settings,
+    save_conversation_settings,
+)
 from anki.conversation.types import (
     ConversationRequest,
     GenerationInstructions,
@@ -96,6 +101,11 @@ class ConversationDialog(QDialog):
             result = {"ok": True}
         elif cmd == "conversation:decks":
             result = {"ok": True, "decks": self.mw.col.decks.all_names()}
+        elif cmd == "conversation:get_settings":
+            result = self._get_settings()
+        elif cmd.startswith("conversation:set_settings:"):
+            payload = json.loads(cmd.split(":", 2)[2])
+            result = self._set_settings(payload)
         elif cmd == "conversation:end":
             result = self._end_session()
         elif cmd == "conversation:wrap":
@@ -191,6 +201,82 @@ class ConversationDialog(QDialog):
             "session_id": session_id,
             "llm_enabled": gateway is not None,
         }
+
+    def _get_settings(self) -> dict[str, Any]:
+        settings = load_conversation_settings(self.mw.col)
+        return {
+            "ok": True,
+            "settings": {
+                "provider": settings.provider,
+                "model": settings.model,
+                "safe_mode": settings.safe_mode,
+                "redaction": settings.redaction_level.value,
+                "max_rewrites": settings.max_rewrites,
+                "lexeme_field_index": settings.lexeme_field_index,
+                "gloss_field_index": settings.gloss_field_index,
+                "snapshot_max_items": settings.snapshot_max_items,
+            },
+        }
+
+    def _set_settings(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            return {"ok": False, "error": "invalid payload"}
+        cur = load_conversation_settings(self.mw.col)
+
+        provider = payload.get("provider", cur.provider)
+        model = payload.get("model", cur.model)
+        safe_mode = payload.get("safe_mode", cur.safe_mode)
+        redaction = payload.get("redaction", cur.redaction_level.value)
+        max_rewrites = payload.get("max_rewrites", cur.max_rewrites)
+        lexeme_field_index = payload.get("lexeme_field_index", cur.lexeme_field_index)
+        gloss_field_index = payload.get("gloss_field_index", cur.gloss_field_index)
+        snapshot_max_items = payload.get("snapshot_max_items", cur.snapshot_max_items)
+
+        if not isinstance(provider, str):
+            provider = cur.provider
+        if provider not in ("fake", "local", "openai"):
+            return {"ok": False, "error": "invalid provider"}
+        if not isinstance(model, str) or not model:
+            model = cur.model
+        if not isinstance(safe_mode, bool):
+            safe_mode = cur.safe_mode
+        if not isinstance(redaction, str) or redaction not in (
+            e.value for e in RedactionLevel
+        ):
+            redaction = cur.redaction_level.value
+        if not isinstance(max_rewrites, int) or max_rewrites < 0 or max_rewrites > 10:
+            max_rewrites = cur.max_rewrites
+        if (
+            not isinstance(lexeme_field_index, int)
+            or lexeme_field_index < 0
+            or lexeme_field_index > 50
+        ):
+            lexeme_field_index = cur.lexeme_field_index
+        if gloss_field_index is not None and (
+            not isinstance(gloss_field_index, int)
+            or gloss_field_index < 0
+            or gloss_field_index > 50
+        ):
+            gloss_field_index = cur.gloss_field_index
+        if (
+            not isinstance(snapshot_max_items, int)
+            or snapshot_max_items <= 0
+            or snapshot_max_items > 50000
+        ):
+            snapshot_max_items = cur.snapshot_max_items
+
+        new_settings = ConversationSettings(
+            provider=provider,
+            model=model,
+            safe_mode=safe_mode,
+            redaction_level=RedactionLevel(redaction),
+            max_rewrites=max_rewrites,
+            lexeme_field_index=lexeme_field_index,
+            gloss_field_index=gloss_field_index,
+            snapshot_max_items=snapshot_max_items,
+        )
+        save_conversation_settings(self.mw.col, new_settings)
+        return {"ok": True}
 
     def _run_turn(self, payload: dict[str, Any]) -> dict[str, Any]:
         if self._session is None:
