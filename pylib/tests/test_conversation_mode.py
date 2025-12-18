@@ -13,9 +13,11 @@ from anki.conversation.telemetry import ConversationTelemetryStore
 from anki.conversation.export import export_conversation_telemetry
 from anki.conversation.redaction import redact_text
 from anki.conversation.settings import RedactionLevel
+from anki.conversation.plan_reply import FakePlanReplyProvider, PlanReplyGateway, PlanReplyRequest
 from anki.conversation.types import (
     ConversationRequest,
     ConversationState,
+    ForbiddenConstraints,
     GenerationInstructions,
     ItemId,
     LanguageConstraints,
@@ -93,7 +95,8 @@ def test_cli_run_is_fully_automatable_and_writes_db(tmp_path) -> None:
             json.dumps(
                 [
                     {
-                        "text_ko": "응",
+                        "text_ko": "의자",
+                        "confidence": "guessing",
                         "events": [
                             {"type": "dont_know", "token": "의자"},
                             {"type": "lookup", "token": "의자", "ms": 120},
@@ -171,6 +174,7 @@ def test_cli_run_is_fully_automatable_and_writes_db(tmp_path) -> None:
             assert mastery["assistant_used"] == 1
             assert mastery["lookup_count"] == 1
             assert mastery["lookup_ms_total"] == 120
+            assert mastery["used_guessing"] == 1
             repair = opened.db.scalar(
                 "select mastery_json from elites_conversation_items where item_id=?",
                 "repair:clarify_meaning",
@@ -383,6 +387,31 @@ def test_gateway_enforces_sentence_length_max() -> None:
         assert False, "expected contract violation"
     except ValueError as e:
         assert "sentence_length_max" in str(e)
+
+
+def test_plan_reply_gateway_rewrites_on_unexpected_tokens() -> None:
+    provider = FakePlanReplyProvider(
+        scripted=[
+            {"options_ko": ["고양이 있어요."], "notes_en": None, "unexpected_tokens": []},
+            {"options_ko": ["의자 있어요."], "notes_en": None, "unexpected_tokens": []},
+        ]
+    )
+    gateway = PlanReplyGateway(provider=provider, max_rewrites=1)
+    req = PlanReplyRequest(
+        system_role="Return JSON only.",
+        conversation_state=ConversationState(summary="x"),
+        intent_en="There is a chair.",
+        language_constraints=LanguageConstraints(
+            must_target=(MustTarget(id=ItemId("lexeme:의자"), type="vocab", surface_forms=("의자",), priority=1.0),),
+            allowed_support=("의자", "있어요", "뭐예요"),
+            allowed_grammar=(),
+            forbidden=ForbiddenConstraints(introduce_new_vocab=True, sentence_length_max=20),
+        ),
+        generation_instructions=GenerationInstructions(safe_mode=True),
+    )
+    resp = gateway.run(request=req)
+    assert provider.i == 2
+    assert resp.unexpected_tokens == ()
 
 
 def test_mastery_upsert_and_increment() -> None:

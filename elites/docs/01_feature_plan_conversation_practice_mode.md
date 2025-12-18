@@ -160,6 +160,7 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 - Added a no-UI end-to-end CLI test that exercises rewrite gating and verifies DB persistence, and enabled `ANKI_TEST_MODE` during python tests to disable fuzz and keep runs deterministic.
 - Implemented session wrap-up output (strengths/reinforce/suggested cards) and deck-derived gloss extraction for offline-first token popups.
 - Added deterministic micro-spacing/avoidance in the planner (`observe_turn()` + scheduled reuse), and expanded telemetry signals/tests (hover does not pollute mastery).
+- Added backend-only \"Plan my reply\" contract + CLI command and extended telemetry with confidence + lookup timing + repair moves; wrap scoring now incorporates these signals for reinforcement selection.
 
 ## Open Issues
 

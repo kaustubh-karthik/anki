@@ -13,6 +13,7 @@ from anki.decks import DeckId
 
 from .export import export_conversation_telemetry
 from .gateway import ConversationGateway, ConversationProvider, OpenAIConversationProvider
+from .plan_reply import FakePlanReplyProvider, PlanReplyGateway, PlanReplyRequest
 from .planner import ConversationPlanner
 from .redaction import redact_text
 from .settings import ConversationSettings, RedactionLevel
@@ -113,6 +114,16 @@ def main(argv: list[str] | None = None) -> None:
     export.add_argument("--collection", required=True)
     export.add_argument("--limit-sessions", type=int, default=100)
 
+    plan = sub.add_parser("plan-reply", help="Generate 2-3 Korean reply options from English intent")
+    plan.add_argument("--collection", required=True)
+    plan.add_argument("--deck", action="append", required=True)
+    plan.add_argument("--intent-en", required=True)
+    plan.add_argument("--provider", choices=["fake", "openai"], default="fake")
+    plan.add_argument("--provider-script", help="JSON file with scripted plan outputs (fake provider only)")
+    plan.add_argument("--api-key-file", default="gpt-api.txt")
+    plan.add_argument("--model", default="gpt-5-nano")
+    plan.add_argument("--safe-mode", action=argparse.BooleanOptionalAction, default=True)
+
     args = parser.parse_args(argv)
 
     if args.cmd == "run":
@@ -121,6 +132,8 @@ def main(argv: list[str] | None = None) -> None:
         _cmd_snapshot(args)
     elif args.cmd == "export-telemetry":
         _cmd_export(args)
+    elif args.cmd == "plan-reply":
+        _cmd_plan_reply(args)
 
 
 def _cmd_run(args: argparse.Namespace) -> None:
@@ -200,6 +213,22 @@ def _cmd_run(args: argparse.Namespace) -> None:
                         value=token,
                         deltas={"user_used": 1},
                     )
+                    if user_input.confidence == "unsure":
+                        telemetry.bump_item_cached(
+                            mastery_cache,
+                            item_id=f"lexeme:{token}",
+                            kind="lexeme",
+                            value=token,
+                            deltas={"used_unsure": 1},
+                        )
+                    elif user_input.confidence == "guessing":
+                        telemetry.bump_item_cached(
+                            mastery_cache,
+                            item_id=f"lexeme:{token}",
+                            kind="lexeme",
+                            value=token,
+                            deltas={"used_guessing": 1},
+                        )
             for token in tokenize_for_validation(response.assistant_reply_ko):
                 if token in lexeme_set:
                     telemetry.bump_item_cached(
@@ -332,6 +361,60 @@ def _cmd_export(args: argparse.Namespace) -> None:
     try:
         exported = export_conversation_telemetry(col, limit_sessions=args.limit_sessions)
         print(exported.to_json())
+    finally:
+        col.close()
+
+
+def _cmd_plan_reply(args: argparse.Namespace) -> None:
+    col = Collection(args.collection)
+    try:
+        deck_ids: list[DeckId] = []
+        for deck_name in args.deck:
+            did = col.decks.id_for_name(deck_name)
+            if not did:
+                raise SystemExit(f"deck not found: {deck_name}")
+            deck_ids.append(DeckId(did))
+
+        snapshot = build_deck_snapshot(col, deck_ids)
+        planner = ConversationPlanner(snapshot)
+        state = planner.initial_state(summary="Conversation practice")
+        # Use planner constraints for this moment; intent is separate from user_input.
+        conv_state, constraints, instructions = planner.plan_turn(
+            state, UserInput(text_ko=""), mastery={}
+        )
+        instructions = GenerationInstructions(
+            conversation_goal=instructions.conversation_goal,
+            tone=instructions.tone,
+            register=instructions.register,
+            provide_follow_up_question=instructions.provide_follow_up_question,
+            provide_micro_feedback=instructions.provide_micro_feedback,
+            provide_suggested_english_intent=instructions.provide_suggested_english_intent,
+            max_corrections=instructions.max_corrections,
+            safe_mode=bool(args.safe_mode),
+        )
+
+        provider: object
+        if args.provider == "fake":
+            scripted = []
+            if args.provider_script:
+                scripted = json.loads(Path(args.provider_script).read_text(encoding="utf-8"))
+                if not isinstance(scripted, list):
+                    raise SystemExit("--provider-script must be a JSON list")
+            provider = FakePlanReplyProvider(scripted=scripted)
+        else:
+            # For now, plan-reply is testable via fake provider; OpenAI wiring mirrors conversation gateway.
+            raise SystemExit("openai plan-reply provider not wired yet (use fake for tests)")
+
+        gateway = PlanReplyGateway(provider=provider)  # type: ignore[arg-type]
+        req = PlanReplyRequest(
+            system_role=SYSTEM_ROLE,
+            conversation_state=conv_state,
+            intent_en=args.intent_en,
+            language_constraints=constraints,
+            generation_instructions=instructions,
+        )
+        resp = gateway.run(request=req)
+        print(orjson.dumps(resp.to_json_dict()).decode("utf-8"))
     finally:
         col.close()
 

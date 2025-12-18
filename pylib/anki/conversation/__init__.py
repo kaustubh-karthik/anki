@@ -8,6 +8,7 @@ from .gateway import (
 from .export import export_conversation_telemetry
 from .collocations import DEFAULT_KO_COLLOCATIONS, select_collocation_targets
 from .grammar import DEFAULT_KO_GRAMMAR, select_grammar_patterns
+from .plan_reply import FakePlanReplyProvider, PlanReplyGateway, PlanReplyProvider, PlanReplyRequest
 from .planner import ConversationPlanner, PlannerState
 from .redaction import redact_text
 from .settings import ConversationSettings, RedactionLevel
@@ -34,8 +35,12 @@ __all__ = [
     "DeckSnapshot",
     "GenerationInstructions",
     "LanguageConstraints",
+    "FakePlanReplyProvider",
     "OpenAIConversationProvider",
     "PlannerState",
+    "PlanReplyGateway",
+    "PlanReplyProvider",
+    "PlanReplyRequest",
     "build_deck_snapshot",
     "compute_session_wrap",
     "check_response_against_request",
