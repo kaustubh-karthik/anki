@@ -16,13 +16,13 @@ from anki.decks import DeckId
 
 from .export import export_conversation_telemetry
 from .gateway import (
-    ConversationGateway,
     ConversationProvider,
     OpenAIConversationProvider,
 )
 from .glossary import import_glossary_file, lookup_gloss, rebuild_glossary_from_snapshot
 from .keys import resolve_openai_api_key
 from .local_provider import LocalConversationProvider
+from .openai import OpenAIResponsesJsonClient
 from .plan_reply import (
     FakePlanReplyProvider,
     OpenAIPlanReplyProvider,
@@ -42,7 +42,14 @@ from .settings import (
 from .snapshot import build_deck_snapshot
 from .suggest import apply_suggested_cards, suggestions_from_wrap
 from .telemetry import ConversationTelemetryStore
-from .types import ConversationRequest, GenerationInstructions, UserInput
+from .types import (
+    ConversationRequest,
+    ConversationState,
+    ForbiddenConstraints,
+    GenerationInstructions,
+    LanguageConstraints,
+    UserInput,
+)
 from .wrap import compute_session_wrap
 
 
@@ -101,6 +108,10 @@ def _load_script(path: Path) -> list[ScriptTurn]:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="anki-conversation")
     sub = parser.add_subparsers(dest="cmd", required=True)
+
+    smoke = sub.add_parser("openai-smoke", help="Minimal OpenAI connectivity test")
+    smoke.add_argument("--api-key-file", default="gpt-api.txt")
+    smoke.add_argument("--model", default="gpt-5-nano")
 
     run = sub.add_parser("run", help="Run a text-only conversation session")
     run.add_argument("--collection", required=True, help="Path to .anki2 file")
@@ -228,6 +239,8 @@ def main(argv: list[str] | None = None) -> None:
         _cmd_snapshot(args)
     elif args.cmd == "export-telemetry":
         _cmd_export(args)
+    elif args.cmd == "openai-smoke":
+        _cmd_openai_smoke(args)
     elif args.cmd == "plan-reply":
         _cmd_plan_reply(args)
     elif args.cmd == "apply-suggestions":
@@ -421,6 +434,31 @@ def _cmd_export(args: argparse.Namespace) -> None:
         print(exported.to_json())
     finally:
         col.close()
+
+
+def _cmd_openai_smoke(args: argparse.Namespace) -> None:
+    api_key = resolve_openai_api_key(api_key_file=Path(args.api_key_file))
+    if not api_key:
+        raise SystemExit(
+            "OpenAI API key missing (set OPENAI_API_KEY or create gpt-api.txt)"
+        )
+    model = args.model
+    if not isinstance(model, str) or not model:
+        model = "gpt-5-nano"
+
+    # Keep this intentionally tiny: it tests TLS/network/auth + JSON-mode parsing,
+    # without depending on the Conversation schema/prompting.
+    client = OpenAIResponsesJsonClient(api_key=api_key, model=model)
+    raw = client.request_json(
+        system_role=(
+            "Return ONLY a JSON object with keys: ok (boolean), reply (string). "
+            "Set ok=true and reply='pong'."
+        ),
+        user_json={"ping": "ping"},
+    )
+    if raw.get("ok") is not True or raw.get("reply") != "pong":
+        raise SystemExit(f"unexpected response: {raw!r}")
+    print(orjson.dumps(raw, option=orjson.OPT_INDENT_2).decode("utf-8"))
 
 
 def _cmd_plan_reply(args: argparse.Namespace) -> None:
