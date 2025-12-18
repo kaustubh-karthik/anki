@@ -22,6 +22,7 @@ from .gateway import (
 )
 from .glossary import lookup_gloss, rebuild_glossary_from_snapshot
 from .keys import resolve_openai_api_key
+from .local_provider import LocalConversationProvider
 from .plan_reply import (
     FakePlanReplyProvider,
     OpenAIPlanReplyProvider,
@@ -110,7 +111,7 @@ def main(argv: list[str] | None = None) -> None:
     run.add_argument("--topic", help="Optional topic id (eg room_objects)")
     run.add_argument(
         "--provider",
-        choices=["fake", "openai"],
+        choices=["fake", "local", "openai"],
         help="LLM provider (default: from saved settings)",
     )
     run.add_argument("--api-key-file", default="gpt-api.txt")
@@ -283,6 +284,8 @@ def _cmd_run(args: argparse.Namespace) -> None:
                 if not isinstance(scripted, list):
                     raise SystemExit("--provider-script must be a JSON list")
             provider = FakeConversationProvider(scripted=scripted)
+        elif settings.provider == "local":
+            provider = LocalConversationProvider()
         else:
             api_key = resolve_openai_api_key(api_key_file=args.api_key_file)
             if not api_key:

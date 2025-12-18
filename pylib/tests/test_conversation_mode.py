@@ -12,6 +12,7 @@ from anki.conversation.export import export_conversation_telemetry
 from anki.conversation.gateway import ConversationGateway, ConversationProvider
 from anki.conversation.glossary import lookup_gloss, rebuild_glossary_from_snapshot
 from anki.conversation.keys import read_api_key_file, resolve_openai_api_key
+from anki.conversation.local_provider import LocalConversationProvider
 from anki.conversation.plan_reply import (
     FakePlanReplyProvider,
     PlanReplyGateway,
@@ -304,6 +305,35 @@ def test_conversation_session_controller_runs_without_ui() -> None:
         assert mastery["assistant_used"] == 1
     finally:
         col.close()
+
+
+def test_local_conversation_provider_obeys_safe_mode_budget() -> None:
+    provider = LocalConversationProvider()
+    gateway = ConversationGateway(provider=provider, max_rewrites=0)
+    request = ConversationRequest(
+        system_role="x",
+        conversation_state=ConversationState(summary="x"),
+        user_input=UserInput(text_ko="의자"),
+        language_constraints=LanguageConstraints(
+            must_target=(
+                MustTarget(
+                    id=ItemId("lexeme:의자"),
+                    type="vocab",
+                    surface_forms=("의자",),
+                    priority=1.0,
+                ),
+            ),
+            allowed_support=("의자", "있어요", "뭐예요", "네"),
+            allowed_grammar=(),
+            forbidden=ForbiddenConstraints(
+                introduce_new_vocab=True, sentence_length_max=20
+            ),
+        ),
+        generation_instructions=GenerationInstructions(safe_mode=True),
+    )
+    response = gateway.run_turn(request=request)
+    assert response.unexpected_tokens == ()
+    assert "의자" in response.assistant_reply_ko
 
 
 def test_snapshot_extracts_lexemes_from_selected_deck() -> None:

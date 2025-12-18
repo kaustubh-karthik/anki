@@ -12,6 +12,7 @@ from anki.conversation import (
     ConversationGateway,
     ConversationPlanner,
     ConversationTelemetryStore,
+    LocalConversationProvider,
     OpenAIConversationProvider,
     OpenAIPlanReplyProvider,
     PlanReplyGateway,
@@ -134,13 +135,21 @@ class ConversationDialog(QDialog):
         mastery_cache = telemetry.load_mastery_cache(
             [str(i.item_id) for i in snapshot.items]
         )
-        api_key = resolve_openai_api_key()
         gateway: ConversationGateway | None = None
-        if api_key and settings.provider == "openai":
-            provider = OpenAIConversationProvider(api_key=api_key, model=settings.model)
+        if settings.provider == "local":
             gateway = ConversationGateway(
-                provider=provider, max_rewrites=settings.max_rewrites
+                provider=LocalConversationProvider(),
+                max_rewrites=settings.max_rewrites,
             )
+        elif settings.provider == "openai":
+            api_key = resolve_openai_api_key()
+            if api_key:
+                provider = OpenAIConversationProvider(
+                    api_key=api_key, model=settings.model
+                )
+                gateway = ConversationGateway(
+                    provider=provider, max_rewrites=settings.max_rewrites
+                )
         topic_id = payload.get("topic_id")
         if not isinstance(topic_id, str):
             topic_id = None

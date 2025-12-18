@@ -230,6 +230,12 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 - Refactored `anki-conversation run` to use `ConversationSession` and added unit coverage for running a full session without any UI.
 - Ran `./ninja check` successfully (full build including aqt tests).
 
+### 2025-12-18 — Codex
+
+- Added a deterministic offline `LocalConversationProvider` that implements the same strict JSON contract and safe-mode budgeting (no network/API key required).
+- Wired the local provider into `anki-conversation` (`--provider local`) and the desktop bridge (when `ConversationSettings.provider == "local"`), enabling local-only smoke testing.
+- Added unit coverage to ensure the local provider obeys safe-mode constraints, and verified with `./ninja check`.
+
 ## Open Issues
 
 - [ ] Decide on default local dictionary source and licensing (offline-first, redistributable).

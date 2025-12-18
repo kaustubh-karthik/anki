@@ -13,6 +13,7 @@ from .gateway import (
 from .glossary import lookup_gloss, rebuild_glossary_from_snapshot
 from .grammar import DEFAULT_KO_GRAMMAR, select_grammar_patterns
 from .keys import read_api_key_file, resolve_openai_api_key
+from .local_provider import LocalConversationProvider
 from .openai import OpenAIResponsesJsonClient
 from .plan_reply import (
     FakePlanReplyProvider,
@@ -66,6 +67,7 @@ __all__ = [
     "OpenAIResponsesJsonClient",
     "read_api_key_file",
     "resolve_openai_api_key",
+    "LocalConversationProvider",
     "ConversationSession",
     "apply_suggested_cards",
     "build_deck_snapshot",
