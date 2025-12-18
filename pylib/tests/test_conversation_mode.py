@@ -17,6 +17,7 @@ from anki.conversation.plan_reply import FakePlanReplyProvider, PlanReplyGateway
 from anki.conversation.suggest import apply_suggested_cards, suggestions_from_wrap
 from anki.conversation.glossary import lookup_gloss, rebuild_glossary_from_snapshot
 from anki.conversation.settings import load_conversation_settings, save_conversation_settings, ConversationSettings
+from anki.conversation.topics import get_topic
 from anki.conversation.types import (
     ConversationRequest,
     ConversationState,
@@ -471,6 +472,12 @@ def test_settings_persist_roundtrip() -> None:
         assert s2.safe_mode is False
     finally:
         col.close()
+
+
+def test_topic_lookup() -> None:
+    t = get_topic("room_objects")
+    assert t is not None
+    assert t.id == "room_objects"
 
 
 def test_mastery_upsert_and_increment() -> None:

@@ -77,7 +77,9 @@ class ConversationPlanner:
     def __init__(self, snapshot: DeckSnapshot) -> None:
         self._snapshot = snapshot
 
-    def initial_state(self, *, summary: str) -> PlannerState:
+    def initial_state(self, *, summary: str, topic_id: str | None = None) -> PlannerState:
+        if topic_id:
+            summary = f"{summary} (topic={topic_id})"
         return PlannerState(conversation_summary=summary)
 
     def plan_turn(

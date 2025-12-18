@@ -123,7 +123,10 @@ class ConversationDialog(QDialog):
         if api_key:
             provider = OpenAIConversationProvider(api_key=api_key)
             gateway = ConversationGateway(provider=provider)
-        state = planner.initial_state(summary="Conversation practice")
+        topic_id = payload.get("topic_id")
+        if not isinstance(topic_id, str):
+            topic_id = None
+        state = planner.initial_state(summary="Conversation practice", topic_id=topic_id)
         self._session = _Session(
             deck_ids=deck_ids,
             snapshot=snapshot,

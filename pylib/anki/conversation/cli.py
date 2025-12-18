@@ -99,6 +99,7 @@ def main(argv: list[str] | None = None) -> None:
     run.add_argument("--collection", required=True, help="Path to .anki2 file")
     run.add_argument("--deck", action="append", required=True, help="Deck name (repeatable)")
     run.add_argument("--script", required=True, help="Path to JSON script")
+    run.add_argument("--topic", help="Optional topic id (eg room_objects)")
     run.add_argument(
         "--provider",
         choices=["fake", "openai"],
@@ -213,7 +214,7 @@ def _cmd_run(args: argparse.Namespace) -> None:
         )
         gateway = ConversationGateway(provider=provider, max_rewrites=settings.max_rewrites)
 
-        state = planner.initial_state(summary="Conversation practice")
+        state = planner.initial_state(summary="Conversation practice", topic_id=args.topic)
         transcript: list[dict[str, Any]] = []
         for turn in turns:
             redacted = redact_text(turn.user_text_ko, settings.redaction_level)
