@@ -166,7 +166,7 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 - Let users choose LLM provider, API keys, redaction levels, offline dictionary packs.
 - Document what data leaves device; support "local-only" warning/fallback.
 - Add export tooling for telemetry (for debugging) respecting privacy toggles.
-  **Status:** 🟨 In progress
+  **Status:** ✅ Completed
 
 ## Progress Log
 
@@ -280,10 +280,17 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 - Exposed provider/model/safe_mode/redaction/max_rewrites and snapshot field mapping in a UI that is scriptable and does not store secrets.
 - Ran `./ninja check` successfully after UI changes.
 
+### 2025-12-18 — Codex
+
+- Fixed multi-deck/note-type snapshot conflicts by adding optional field-name based extraction (`lexeme_field_names`/`gloss_field_names`) and surfacing these in settings (CLI/desktop UI), with unit coverage.
+- Added user-supplied offline dictionary import (`anki-conversation import-glossary`) to avoid bundling a dictionary with uncertain licensing; supports `.tsv/.csv/.json` and writes to the glossary cache deterministically.
+- Added a telemetry export bridge/UI (`conversation:export_telemetry`) that returns redacted JSON per saved redaction settings for easy debugging without manual DB inspection.
+- Ran `./ninja check` successfully after changes.
+
 ## Open Issues
 
-- [ ] Decide on default local dictionary source and licensing (offline-first, redistributable).
-- [ ] Clarify how planner handles multi-deck selection with conflicting templates.
+- [ ] Decide on default local dictionary source and licensing (offline-first, redistributable); user-supplied imports now supported.
+- [x] Clarify how planner handles multi-deck selection with conflicting templates (use field-name extraction, with per-note-type fallback).
 - [ ] Evaluate whether FSRS mastery signals should influence core scheduler or stay scoped to conversation mode.
 - [ ] Expand grammar/collocation catalog beyond the current minimal built-ins.
 - [x] Centralize key resolution and keep `gpt-api.txt` as an optional dev convenience (do not persist secrets in config).

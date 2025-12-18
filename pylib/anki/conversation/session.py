@@ -61,7 +61,9 @@ class ConversationSession:
             col,
             deck_ids,
             lexeme_field_index=settings.lexeme_field_index,
+            lexeme_field_names=settings.lexeme_field_names,
             gloss_field_index=settings.gloss_field_index,
+            gloss_field_names=settings.gloss_field_names,
             max_items=settings.snapshot_max_items,
         )
         planner = ConversationPlanner(snapshot)

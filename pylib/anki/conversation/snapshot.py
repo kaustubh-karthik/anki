@@ -9,6 +9,7 @@ from typing import Iterable
 
 from anki.collection import Collection
 from anki.decks import DeckId
+from anki.models import NotetypeId
 from anki.utils import strip_html
 
 from .types import ItemId
@@ -45,7 +46,9 @@ def build_deck_snapshot(
     deck_ids: Iterable[DeckId],
     *,
     lexeme_field_index: int = 0,
+    lexeme_field_names: tuple[str, ...] = (),
     gloss_field_index: int | None = 1,
+    gloss_field_names: tuple[str, ...] = (),
     max_items: int = 5000,
     include_fsrs_metrics: bool = True,
 ) -> DeckSnapshot:
@@ -62,7 +65,7 @@ def build_deck_snapshot(
 
     placeholders = ",".join("?" for _ in unique_dids)
     sql = (
-        "select c.id, c.nid, n.flds, c.type, c.queue, c.due, c.ivl, c.reps, c.lapses "
+        "select c.id, c.nid, n.mid, n.flds, c.type, c.queue, c.due, c.ivl, c.reps, c.lapses "
         "from cards c "
         "join notes n on n.id = c.nid "
         f"where c.did in ({placeholders}) "
@@ -71,18 +74,33 @@ def build_deck_snapshot(
     rows = col.db.all(sql, *unique_dids, max_items)
 
     items: list[SnapshotItem] = []
-    for card_id, note_id, flds, ctype, cqueue, due, ivl, reps, lapses in rows:
+    field_name_cache: dict[int, dict[str, int]] = {}
+    lexeme_names = tuple(x.strip() for x in lexeme_field_names if x.strip())
+    gloss_names = tuple(x.strip() for x in gloss_field_names if x.strip())
+
+    for card_id, note_id, mid, flds, ctype, cqueue, due, ivl, reps, lapses in rows:
         if not isinstance(flds, str):
             continue
         fields = flds.split("\x1f")
-        if lexeme_field_index >= len(fields):
+
+        lexeme_idx = lexeme_field_index
+        if isinstance(mid, int) and lexeme_names:
+            idx = _field_index_for_notetype(col, mid, lexeme_names, field_name_cache)
+            if idx is not None:
+                lexeme_idx = idx
+        if lexeme_idx >= len(fields):
             continue
-        raw = strip_html(fields[lexeme_field_index]).strip()
+        raw = strip_html(fields[lexeme_idx]).strip()
         if not raw:
             continue
         gloss: str | None = None
-        if gloss_field_index is not None and gloss_field_index < len(fields):
-            raw_gloss = strip_html(fields[gloss_field_index]).strip()
+        gloss_idx: int | None = gloss_field_index
+        if isinstance(mid, int) and gloss_names:
+            idx = _field_index_for_notetype(col, mid, gloss_names, field_name_cache)
+            if idx is not None:
+                gloss_idx = idx
+        if gloss_idx is not None and gloss_idx < len(fields):
+            raw_gloss = strip_html(fields[gloss_idx]).strip()
             gloss = raw_gloss if raw_gloss else None
 
         lexeme = _extract_lexeme(raw)
@@ -119,3 +137,26 @@ def build_deck_snapshot(
 def _extract_lexeme(text: str) -> str:
     m = _LEXEME_RE.search(text)
     return m.group(0) if m else ""
+
+
+def _field_index_for_notetype(
+    col: Collection,
+    mid: int,
+    preferred_names: tuple[str, ...],
+    cache: dict[int, dict[str, int]],
+) -> int | None:
+    mapping = cache.get(mid)
+    if mapping is None:
+        mapping = {}
+        notetype = col.models.get(NotetypeId(mid))
+        if notetype:
+            for idx, fld in enumerate(notetype.get("flds", [])):
+                name = fld.get("name")
+                if isinstance(name, str) and name:
+                    mapping[name] = idx
+        cache[mid] = mapping
+    for name in preferred_names:
+        idx = mapping.get(name)
+        if idx is not None:
+            return idx
+    return None

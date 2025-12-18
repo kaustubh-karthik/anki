@@ -371,6 +371,67 @@ def test_snapshot_extracts_lexemes_from_selected_deck() -> None:
         col.close()
 
 
+def test_snapshot_supports_field_name_mapping_across_notetypes() -> None:
+    col = getEmptyCol()
+    try:
+        did = col.decks.id("Korean")
+        col.decks.select(DeckId(did))
+
+        # Default Basic notetype uses Front/Back
+        note1 = col.newNote()
+        note1["Front"] = "의자"
+        note1["Back"] = "chair"
+        col.addNote(note1)
+        for card in note1.cards():
+            card.did = did
+            card.flush()
+
+        # Create a second notetype with different field names
+        nt = col.models.new("Korean2")
+        col.models.add_field(nt, col.models.new_field("Korean"))
+        col.models.add_field(nt, col.models.new_field("English"))
+        col.models.add_template(nt, col.models.new_template("Card 1"))
+        nt["tmpls"][0]["qfmt"] = "{{Korean}}"
+        nt["tmpls"][0]["afmt"] = "{{FrontSide}}\n\n<hr id=answer>\n\n{{English}}"
+        col.models.add_dict(nt)
+
+        note2 = col.newNote(nt)
+        note2["Korean"] = "책상"
+        note2["English"] = "desk"
+        col.addNote(note2)
+        for card in note2.cards():
+            card.did = did
+            card.flush()
+
+        # Field names allow us to extract across differing schemas.
+        snapshot = build_deck_snapshot(
+            col,
+            [DeckId(did)],
+            lexeme_field_names=("Front", "Korean"),
+            gloss_field_names=("Back", "English"),
+        )
+        lexemes = {i.lexeme for i in snapshot.items}
+        assert "의자" in lexemes
+        assert "책상" in lexemes
+    finally:
+        col.close()
+
+
+def test_import_glossary_file_tsv(tmp_path) -> None:
+    from anki.conversation.glossary import import_glossary_file
+
+    col = getEmptyCol()
+    try:
+        path = tmp_path / "glossary.tsv"
+        path.write_text("의자\tchair\n#comment\n책상\tdesk\n", encoding="utf-8")
+        updated = import_glossary_file(col, path)
+        assert updated == 2
+        assert lookup_gloss(col, "의자") is not None
+        assert lookup_gloss(col, "책상") is not None
+    finally:
+        col.close()
+
+
 def test_snapshot_strips_html_in_lexeme_field() -> None:
     col = getEmptyCol()
     try:

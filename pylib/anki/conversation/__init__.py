@@ -10,7 +10,7 @@ from .gateway import (
     ConversationProvider,
     OpenAIConversationProvider,
 )
-from .glossary import lookup_gloss, rebuild_glossary_from_snapshot
+from .glossary import import_glossary_file, lookup_gloss, rebuild_glossary_from_snapshot
 from .grammar import DEFAULT_KO_GRAMMAR, select_grammar_patterns
 from .keys import read_api_key_file, resolve_openai_api_key
 from .local_provider import LocalConversationProvider
@@ -64,6 +64,7 @@ __all__ = [
     "GenerationInstructions",
     "LanguageConstraints",
     "lookup_gloss",
+    "import_glossary_file",
     "FakePlanReplyProvider",
     "OpenAIConversationProvider",
     "PlannerState",

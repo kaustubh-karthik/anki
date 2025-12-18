@@ -24,6 +24,7 @@ from anki.conversation import (
     apply_suggested_cards,
     build_deck_snapshot,
     compute_session_wrap,
+    export_conversation_telemetry,
     lookup_gloss,
     suggestions_from_wrap,
 )
@@ -108,6 +109,9 @@ class ConversationDialog(QDialog):
             result = self._set_settings(payload)
         elif cmd == "conversation:end":
             result = self._end_session()
+        elif cmd.startswith("conversation:export_telemetry:"):
+            payload = json.loads(cmd.split(":", 2)[2])
+            result = self._export_telemetry(payload)
         elif cmd == "conversation:wrap":
             result = self._get_wrap()
         elif cmd.startswith("conversation:gloss:"):
@@ -154,7 +158,9 @@ class ConversationDialog(QDialog):
             self.mw.col,
             [DeckId(d) for d in deck_ids],
             lexeme_field_index=settings.lexeme_field_index,
+            lexeme_field_names=settings.lexeme_field_names,
             gloss_field_index=settings.gloss_field_index,
+            gloss_field_names=settings.gloss_field_names,
             max_items=settings.snapshot_max_items,
         )
         planner = ConversationPlanner(snapshot)
@@ -213,7 +219,9 @@ class ConversationDialog(QDialog):
                 "redaction": settings.redaction_level.value,
                 "max_rewrites": settings.max_rewrites,
                 "lexeme_field_index": settings.lexeme_field_index,
+                "lexeme_field_names": list(settings.lexeme_field_names),
                 "gloss_field_index": settings.gloss_field_index,
+                "gloss_field_names": list(settings.gloss_field_names),
                 "snapshot_max_items": settings.snapshot_max_items,
             },
         }
@@ -229,7 +237,13 @@ class ConversationDialog(QDialog):
         redaction = payload.get("redaction", cur.redaction_level.value)
         max_rewrites = payload.get("max_rewrites", cur.max_rewrites)
         lexeme_field_index = payload.get("lexeme_field_index", cur.lexeme_field_index)
+        lexeme_field_names = payload.get(
+            "lexeme_field_names", list(cur.lexeme_field_names)
+        )
         gloss_field_index = payload.get("gloss_field_index", cur.gloss_field_index)
+        gloss_field_names = payload.get(
+            "gloss_field_names", list(cur.gloss_field_names)
+        )
         snapshot_max_items = payload.get("snapshot_max_items", cur.snapshot_max_items)
 
         if not isinstance(provider, str):
@@ -252,12 +266,22 @@ class ConversationDialog(QDialog):
             or lexeme_field_index > 50
         ):
             lexeme_field_index = cur.lexeme_field_index
+        if not isinstance(lexeme_field_names, list) or not all(
+            isinstance(x, str) for x in lexeme_field_names
+        ):
+            lexeme_field_names = list(cur.lexeme_field_names)
+        lexeme_field_names = [x.strip() for x in lexeme_field_names if x.strip()][:10]
         if gloss_field_index is not None and (
             not isinstance(gloss_field_index, int)
             or gloss_field_index < 0
             or gloss_field_index > 50
         ):
             gloss_field_index = cur.gloss_field_index
+        if not isinstance(gloss_field_names, list) or not all(
+            isinstance(x, str) for x in gloss_field_names
+        ):
+            gloss_field_names = list(cur.gloss_field_names)
+        gloss_field_names = [x.strip() for x in gloss_field_names if x.strip()][:10]
         if (
             not isinstance(snapshot_max_items, int)
             or snapshot_max_items <= 0
@@ -272,7 +296,9 @@ class ConversationDialog(QDialog):
             redaction_level=RedactionLevel(redaction),
             max_rewrites=max_rewrites,
             lexeme_field_index=lexeme_field_index,
+            lexeme_field_names=tuple(lexeme_field_names),
             gloss_field_index=gloss_field_index,
+            gloss_field_names=tuple(gloss_field_names),
             snapshot_max_items=snapshot_max_items,
         )
         save_conversation_settings(self.mw.col, new_settings)
@@ -361,6 +387,21 @@ class ConversationDialog(QDialog):
         sid = self._session.session_id
         self._session = None
         return {"ok": True, "session_id": sid, "wrap": wrap}
+
+    def _export_telemetry(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            payload = {}
+        limit_sessions = payload.get("limit_sessions", 50)
+        if not isinstance(limit_sessions, int) or limit_sessions <= 0:
+            limit_sessions = 50
+        limit_sessions = min(limit_sessions, 500)
+        settings = load_conversation_settings(self.mw.col)
+        exported = export_conversation_telemetry(
+            self.mw.col,
+            limit_sessions=limit_sessions,
+            redaction_level=settings.redaction_level,
+        )
+        return {"ok": True, "json": exported.to_json()}
 
     def _apply_suggestions(self, payload: dict[str, Any]) -> dict[str, Any]:
         if self._session is None:

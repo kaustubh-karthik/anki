@@ -20,7 +20,7 @@ from .gateway import (
     ConversationProvider,
     OpenAIConversationProvider,
 )
-from .glossary import lookup_gloss, rebuild_glossary_from_snapshot
+from .glossary import import_glossary_file, lookup_gloss, rebuild_glossary_from_snapshot
 from .keys import resolve_openai_api_key
 from .local_provider import LocalConversationProvider
 from .plan_reply import (
@@ -183,9 +183,30 @@ def main(argv: list[str] | None = None) -> None:
     rebuild.add_argument("--collection", required=True)
     rebuild.add_argument("--deck", action="append", required=True)
     rebuild.add_argument("--lexeme-field-index", type=int, default=0)
+    rebuild.add_argument(
+        "--lexeme-field-name",
+        action="append",
+        default=[],
+        help="Preferred lexeme field name (repeatable; overrides persisted names)",
+    )
     rebuild.add_argument("--gloss-field-index", type=int, default=1)
+    rebuild.add_argument(
+        "--gloss-field-name",
+        action="append",
+        default=[],
+        help="Preferred gloss field name (repeatable; overrides persisted names)",
+    )
     rebuild.add_argument("--no-gloss-field", action="store_true")
     rebuild.add_argument("--snapshot-max-items", type=int, default=5000)
+
+    imp_gloss = sub.add_parser(
+        "import-glossary", help="Import a user-supplied glossary file into cache"
+    )
+    imp_gloss.add_argument("--collection", required=True)
+    imp_gloss.add_argument("--file", required=True, help="Path to .tsv/.csv/.json")
+    imp_gloss.add_argument(
+        "--format", choices=["tsv", "csv", "json"], help="Override format detection"
+    )
 
     getset = sub.add_parser("settings", help="Get/set persisted conversation settings")
     getset.add_argument("--collection", required=True)
@@ -215,6 +236,8 @@ def main(argv: list[str] | None = None) -> None:
         _cmd_gloss(args)
     elif args.cmd == "rebuild-glossary":
         _cmd_rebuild_glossary(args)
+    elif args.cmd == "import-glossary":
+        _cmd_import_glossary(args)
     elif args.cmd == "settings":
         _cmd_settings(args)
 
@@ -257,7 +280,9 @@ def _merged_settings(
         redaction_level=redaction_level,
         max_rewrites=base.max_rewrites,
         lexeme_field_index=int(lexeme_field_index),
+        lexeme_field_names=base.lexeme_field_names,
         gloss_field_index=None if gloss_field_index is None else int(gloss_field_index),
+        gloss_field_names=base.gloss_field_names,
         snapshot_max_items=int(snapshot_max_items),
     )
 
@@ -348,7 +373,9 @@ def _cmd_snapshot(args: argparse.Namespace) -> None:
             col,
             deck_ids,
             lexeme_field_index=settings.lexeme_field_index,
+            lexeme_field_names=settings.lexeme_field_names,
             gloss_field_index=settings.gloss_field_index,
+            gloss_field_names=settings.gloss_field_names,
             max_items=settings.snapshot_max_items,
         )
         print(
@@ -508,23 +535,45 @@ def _cmd_gloss(args: argparse.Namespace) -> None:
 def _cmd_rebuild_glossary(args: argparse.Namespace) -> None:
     col = Collection(args.collection)
     try:
+        base = load_conversation_settings(col)
         deck_ids: list[DeckId] = []
         for deck_name in args.deck:
             did = col.decks.id_for_name(deck_name)
             if not did:
                 raise SystemExit(f"deck not found: {deck_name}")
             deck_ids.append(DeckId(did))
+        lexeme_field_names = (
+            tuple(args.lexeme_field_name)
+            if args.lexeme_field_name
+            else base.lexeme_field_names
+        )
+        gloss_field_names = (
+            tuple(args.gloss_field_name)
+            if args.gloss_field_name
+            else base.gloss_field_names
+        )
         snapshot = build_deck_snapshot(
             col,
             deck_ids,
             lexeme_field_index=int(args.lexeme_field_index),
+            lexeme_field_names=lexeme_field_names,
             gloss_field_index=None
             if args.no_gloss_field
             else int(args.gloss_field_index),
+            gloss_field_names=gloss_field_names,
             max_items=int(args.snapshot_max_items),
         )
         count = rebuild_glossary_from_snapshot(col, snapshot)
         print(orjson.dumps({"updated": count}).decode("utf-8"))
+    finally:
+        col.close()
+
+
+def _cmd_import_glossary(args: argparse.Namespace) -> None:
+    col = Collection(args.collection)
+    try:
+        updated = import_glossary_file(col, args.file, format=args.format)
+        print(orjson.dumps({"updated": updated}).decode("utf-8"))
     finally:
         col.close()
 

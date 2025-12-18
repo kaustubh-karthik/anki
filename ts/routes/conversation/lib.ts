@@ -27,6 +27,7 @@ export function buildConversationCommand(
         | "gloss"
         | "event"
         | "wrap"
+        | "export_telemetry"
         | "apply_suggestions"
         | "plan_reply"
         | "translate",
@@ -57,6 +58,10 @@ export function buildConversationCommand(
     }
     if (kind === "wrap") {
         return "conversation:wrap";
+    }
+    if (kind === "export_telemetry") {
+        const json = payload ? JSON.stringify(payload) : "{}";
+        return `conversation:export_telemetry:${json}`;
     }
     if (kind === "apply_suggestions") {
         const json = payload ? JSON.stringify(payload) : "{}";

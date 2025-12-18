@@ -23,7 +23,9 @@ class ConversationSettings:
     redaction_level: RedactionLevel = RedactionLevel.minimal
     max_rewrites: int = 2
     lexeme_field_index: int = 0
+    lexeme_field_names: tuple[str, ...] = ()
     gloss_field_index: int | None = 1
+    gloss_field_names: tuple[str, ...] = ()
     snapshot_max_items: int = 5000
 
 
@@ -41,7 +43,11 @@ def load_conversation_settings(col: Collection) -> ConversationSettings:
     redaction_level_raw = raw.get("redaction_level", defaults.redaction_level.value)
     max_rewrites = raw.get("max_rewrites", defaults.max_rewrites)
     lexeme_field_index = raw.get("lexeme_field_index", defaults.lexeme_field_index)
+    lexeme_field_names = raw.get(
+        "lexeme_field_names", list(defaults.lexeme_field_names)
+    )
     gloss_field_index = raw.get("gloss_field_index", defaults.gloss_field_index)
+    gloss_field_names = raw.get("gloss_field_names", list(defaults.gloss_field_names))
     snapshot_max_items = raw.get("snapshot_max_items", defaults.snapshot_max_items)
 
     if not isinstance(provider, str):
@@ -62,12 +68,22 @@ def load_conversation_settings(col: Collection) -> ConversationSettings:
         or lexeme_field_index > 50
     ):
         lexeme_field_index = 0
+    if not isinstance(lexeme_field_names, list) or not all(
+        isinstance(x, str) for x in lexeme_field_names
+    ):
+        lexeme_field_names = []
+    lexeme_field_names = [x.strip() for x in lexeme_field_names if x.strip()][:10]
     if gloss_field_index is not None and (
         not isinstance(gloss_field_index, int)
         or gloss_field_index < 0
         or gloss_field_index > 50
     ):
         gloss_field_index = 1
+    if not isinstance(gloss_field_names, list) or not all(
+        isinstance(x, str) for x in gloss_field_names
+    ):
+        gloss_field_names = []
+    gloss_field_names = [x.strip() for x in gloss_field_names if x.strip()][:10]
     if (
         not isinstance(snapshot_max_items, int)
         or snapshot_max_items <= 0
@@ -82,7 +98,9 @@ def load_conversation_settings(col: Collection) -> ConversationSettings:
         redaction_level=RedactionLevel(redaction_level_raw),
         max_rewrites=max_rewrites,
         lexeme_field_index=lexeme_field_index,
+        lexeme_field_names=tuple(lexeme_field_names),
         gloss_field_index=gloss_field_index,
+        gloss_field_names=tuple(gloss_field_names),
         snapshot_max_items=snapshot_max_items,
     )
 
@@ -97,7 +115,9 @@ def save_conversation_settings(col: Collection, settings: ConversationSettings) 
             "redaction_level": settings.redaction_level.value,
             "max_rewrites": settings.max_rewrites,
             "lexeme_field_index": settings.lexeme_field_index,
+            "lexeme_field_names": list(settings.lexeme_field_names),
             "gloss_field_index": settings.gloss_field_index,
+            "gloss_field_names": list(settings.gloss_field_names),
             "snapshot_max_items": settings.snapshot_max_items,
         },
         undoable=False,

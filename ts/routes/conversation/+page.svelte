@@ -42,6 +42,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let showSettings = false;
     let settings: any = null;
     let noGlossField = false;
+    let lexemeFieldNamesText = "";
+    let glossFieldNamesText = "";
+    let showExportTelemetry = false;
+    let telemetryJson = "";
 
     onMount(() => {
         if (!bridgeCommandsAvailable()) {
@@ -51,6 +55,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             if (resp?.ok) {
                 settings = resp.settings ?? null;
                 noGlossField = settings?.gloss_field_index == null;
+                lexemeFieldNamesText = Array.isArray(settings?.lexeme_field_names)
+                    ? settings.lexeme_field_names.join(", ")
+                    : "";
+                glossFieldNamesText = Array.isArray(settings?.gloss_field_names)
+                    ? settings.gloss_field_names.join(", ")
+                    : "";
             }
         });
         bridgeCommand(buildConversationCommand("decks"), (resp: any) => {
@@ -266,6 +276,24 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             },
         );
     }
+
+    function exportTelemetry(): void {
+        error = null;
+        telemetryJson = "";
+        if (!bridgeCommandsAvailable()) {
+            return;
+        }
+        bridgeCommand(
+            buildConversationCommand("export_telemetry", { limit_sessions: 50 }),
+            (resp: any) => {
+                if (!resp?.ok) {
+                    error = resp?.error ?? "export telemetry failed.";
+                    return;
+                }
+                telemetryJson = resp.json ?? "";
+            },
+        );
+    }
 </script>
 
 <div class="page">
@@ -332,6 +360,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     min="0"
                     max="50"
                 />
+                <label for="lexeme_field_names">lexeme_field_names</label>
+                <input
+                    id="lexeme_field_names"
+                    bind:value={lexemeFieldNamesText}
+                    placeholder="e.g. Front, Korean"
+                />
                 <label>
                     <input
                         type="checkbox"
@@ -355,6 +389,13 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     max="50"
                     disabled={noGlossField}
                 />
+                <label for="gloss_field_names">gloss_field_names</label>
+                <input
+                    id="gloss_field_names"
+                    bind:value={glossFieldNamesText}
+                    placeholder="e.g. Back, English"
+                    disabled={noGlossField}
+                />
                 <label for="snapshot_max_items">snapshot_max_items</label>
                 <input
                     id="snapshot_max_items"
@@ -373,10 +414,18 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                             ...settings,
                             max_rewrites: Number(settings.max_rewrites),
                             lexeme_field_index: Number(settings.lexeme_field_index),
+                            lexeme_field_names: lexemeFieldNamesText
+                                .split(",")
+                                .map((s) => s.trim())
+                                .filter(Boolean),
                             gloss_field_index:
                                 settings.gloss_field_index == null
                                     ? null
                                     : Number(settings.gloss_field_index),
+                            gloss_field_names: glossFieldNamesText
+                                .split(",")
+                                .map((s) => s.trim())
+                                .filter(Boolean),
                             snapshot_max_items: Number(settings.snapshot_max_items),
                         };
                         bridgeCommand(
@@ -392,6 +441,23 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     Save Settings
                 </button>
             </div>
+
+            <div class="row">
+                <button
+                    type="button"
+                    on:click={() => (showExportTelemetry = !showExportTelemetry)}
+                >
+                    {showExportTelemetry ? "Hide" : "Show"} Export telemetry
+                </button>
+                {#if showExportTelemetry}
+                    <button type="button" on:click={exportTelemetry}>Export</button>
+                {/if}
+            </div>
+            {#if showExportTelemetry && telemetryJson}
+                <textarea rows="8" style="width: 100%;" readonly>
+                    {telemetryJson}
+                </textarea>
+            {/if}
         </div>
     {/if}
 

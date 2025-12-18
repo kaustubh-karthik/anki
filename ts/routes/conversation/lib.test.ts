@@ -23,6 +23,12 @@ test("buildConversationCommand set_settings", () => {
     );
 });
 
+test("buildConversationCommand export_telemetry", () => {
+    expect(buildConversationCommand("export_telemetry", { limit_sessions: 1 })).toContain(
+        "conversation:export_telemetry:",
+    );
+});
+
 test("buildConversationCommand end", () => {
     expect(buildConversationCommand("end")).toBe("conversation:end");
 });
