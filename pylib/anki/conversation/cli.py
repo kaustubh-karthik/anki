@@ -13,7 +13,13 @@ from anki.decks import DeckId
 
 from .export import export_conversation_telemetry
 from .gateway import ConversationGateway, ConversationProvider, OpenAIConversationProvider
-from .plan_reply import FakePlanReplyProvider, PlanReplyGateway, PlanReplyRequest
+from .glossary import lookup_gloss, rebuild_glossary_from_snapshot
+from .plan_reply import (
+    FakePlanReplyProvider,
+    OpenAIPlanReplyProvider,
+    PlanReplyGateway,
+    PlanReplyRequest,
+)
 from .planner import ConversationPlanner
 from .redaction import redact_text
 from .settings import ConversationSettings, RedactionLevel
@@ -130,6 +136,14 @@ def main(argv: list[str] | None = None) -> None:
     apply_sug.add_argument("--deck", required=True, help="Target deck name for added notes")
     apply_sug.add_argument("--limit-sessions", type=int, default=1)
 
+    gloss = sub.add_parser("gloss", help="Lookup a lexeme gloss from the offline glossary cache")
+    gloss.add_argument("--collection", required=True)
+    gloss.add_argument("--lexeme", required=True)
+
+    rebuild = sub.add_parser("rebuild-glossary", help="Rebuild glossary cache from selected deck(s)")
+    rebuild.add_argument("--collection", required=True)
+    rebuild.add_argument("--deck", action="append", required=True)
+
     args = parser.parse_args(argv)
 
     if args.cmd == "run":
@@ -142,6 +156,10 @@ def main(argv: list[str] | None = None) -> None:
         _cmd_plan_reply(args)
     elif args.cmd == "apply-suggestions":
         _cmd_apply_suggestions(args)
+    elif args.cmd == "gloss":
+        _cmd_gloss(args)
+    elif args.cmd == "rebuild-glossary":
+        _cmd_rebuild_glossary(args)
 
 
 def _cmd_run(args: argparse.Namespace) -> None:
@@ -410,8 +428,8 @@ def _cmd_plan_reply(args: argparse.Namespace) -> None:
                     raise SystemExit("--provider-script must be a JSON list")
             provider = FakePlanReplyProvider(scripted=scripted)
         else:
-            # For now, plan-reply is testable via fake provider; OpenAI wiring mirrors conversation gateway.
-            raise SystemExit("openai plan-reply provider not wired yet (use fake for tests)")
+            api_key = Path(args.api_key_file).read_text(encoding="utf-8").strip()
+            provider = OpenAIPlanReplyProvider(api_key=api_key, model=args.model)
 
         gateway = PlanReplyGateway(provider=provider)  # type: ignore[arg-type]
         req = PlanReplyRequest(
@@ -454,6 +472,34 @@ def _cmd_apply_suggestions(args: argparse.Namespace) -> None:
         suggestions = suggestions_from_wrap(wrap, deck_id=int(did))
         created = apply_suggested_cards(col, suggestions)
         print(orjson.dumps({"created_note_ids": created}).decode("utf-8"))
+    finally:
+        col.close()
+
+
+def _cmd_gloss(args: argparse.Namespace) -> None:
+    col = Collection(args.collection)
+    try:
+        entry = lookup_gloss(col, args.lexeme)
+        if entry is None:
+            print(orjson.dumps({"found": False}).decode("utf-8"))
+        else:
+            print(orjson.dumps({"found": True, "lexeme": entry.lexeme, "gloss": entry.gloss}).decode("utf-8"))
+    finally:
+        col.close()
+
+
+def _cmd_rebuild_glossary(args: argparse.Namespace) -> None:
+    col = Collection(args.collection)
+    try:
+        deck_ids: list[DeckId] = []
+        for deck_name in args.deck:
+            did = col.decks.id_for_name(deck_name)
+            if not did:
+                raise SystemExit(f"deck not found: {deck_name}")
+            deck_ids.append(DeckId(did))
+        snapshot = build_deck_snapshot(col, deck_ids)
+        count = rebuild_glossary_from_snapshot(col, snapshot)
+        print(orjson.dumps({"updated": count}).decode("utf-8"))
     finally:
         col.close()
 

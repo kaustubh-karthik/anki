@@ -15,6 +15,7 @@ from anki.conversation.redaction import redact_text
 from anki.conversation.settings import RedactionLevel
 from anki.conversation.plan_reply import FakePlanReplyProvider, PlanReplyGateway, PlanReplyRequest
 from anki.conversation.suggest import apply_suggested_cards, suggestions_from_wrap
+from anki.conversation.glossary import lookup_gloss, rebuild_glossary_from_snapshot
 from anki.conversation.types import (
     ConversationRequest,
     ConversationState,
@@ -427,6 +428,30 @@ def test_apply_suggested_cards_creates_basic_notes() -> None:
         assert len(note_ids) == 1
         assert col.note_count() == 1
         assert "conv_suggested" in col.tags.all()
+    finally:
+        col.close()
+
+
+def test_glossary_rebuild_and_lookup() -> None:
+    col = getEmptyCol()
+    try:
+        did = col.decks.id("Korean")
+        col.decks.select(DeckId(did))
+
+        note = col.newNote()
+        note["Front"] = "의자"
+        note["Back"] = "chair"
+        col.addNote(note)
+        for card in note.cards():
+            card.did = did
+            card.flush()
+
+        snapshot = build_deck_snapshot(col, [DeckId(did)], include_fsrs_metrics=False)
+        updated = rebuild_glossary_from_snapshot(col, snapshot)
+        assert updated >= 1
+        entry = lookup_gloss(col, "의자")
+        assert entry is not None
+        assert entry.gloss == "chair"
     finally:
         col.close()
 

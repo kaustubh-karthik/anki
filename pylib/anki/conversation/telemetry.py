@@ -48,6 +48,14 @@ create table if not exists elites_conversation_items (
   updated_ms integer not null
 )
 """,
+        """
+create table if not exists elites_conversation_glossary (
+  lexeme text primary key,
+  gloss text,
+  source_note_id integer,
+  updated_ms integer not null
+)
+""",
         "create index if not exists idx_elites_conversation_events_session on elites_conversation_events(session_id)",
     ]
 

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
+from .openai import OpenAIResponsesJsonClient
 from .types import (
     ConversationState,
     ForbiddenConstraints,
@@ -181,5 +181,14 @@ class FakePlanReplyProvider(PlanReplyProvider):
             return {"options_ko": ["네, 알겠어요."], "notes_en": None, "unexpected_tokens": []}
         out = self.scripted[self.i]
         self.i += 1
-        return json.loads(json.dumps(out, ensure_ascii=False))
+        return out
 
+
+@dataclass(slots=True)
+class OpenAIPlanReplyProvider(PlanReplyProvider):
+    api_key: str
+    model: str = "gpt-5-nano"
+
+    def generate(self, *, request: PlanReplyRequest) -> dict[str, Any]:
+        client = OpenAIResponsesJsonClient(api_key=self.api_key, model=self.model)
+        return client.request_json(system_role=request.system_role, user_json=request.to_json_dict())

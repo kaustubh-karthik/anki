@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
-import orjson
-
-from anki.httpclient import HttpClient
-
+from .openai import OpenAIResponsesJsonClient
 from .types import ConversationRequest, ConversationResponse
 from .validation import validate_tokens
 from .contract import check_response_against_request
@@ -24,48 +20,10 @@ class ConversationProvider(ABC):
 class OpenAIConversationProvider(ConversationProvider):
     api_key: str
     model: str = "gpt-5-nano"
-    api_url: str = "https://api.openai.com/v1/responses"
 
     def generate(self, *, request: ConversationRequest) -> dict[str, Any]:
-        payload = {
-            "model": self.model,
-            "input": [
-                {"role": "system", "content": request.system_role},
-                {
-                    "role": "user",
-                    "content": json.dumps(request.to_json_dict(), ensure_ascii=False),
-                },
-            ],
-            "text": {"format": {"type": "json_object"}},
-        }
-
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-
-        with HttpClient() as client:
-            resp = client.post(self.api_url, data=orjson.dumps(payload), headers=headers)
-            data = resp.json()
-
-        text = data.get("output_text")
-        if not isinstance(text, str):
-            text = _extract_text_fallback(data)
-        return json.loads(text)
-
-
-def _extract_text_fallback(data: dict[str, Any]) -> str:
-    try:
-        output = data["output"]
-        for item in output:
-            for content in item.get("content", []):
-                if content.get("type") == "output_text" and isinstance(
-                    content.get("text"), str
-                ):
-                    return content["text"]
-    except Exception:
-        pass
-    raise ValueError("unable to extract text from provider response")
+        client = OpenAIResponsesJsonClient(api_key=self.api_key, model=self.model)
+        return client.request_json(system_role=request.system_role, user_json=request.to_json_dict())
 
 
 @dataclass(slots=True)
