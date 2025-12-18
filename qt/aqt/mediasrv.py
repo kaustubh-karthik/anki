@@ -359,6 +359,7 @@ def is_sveltekit_page(path: str) -> bool:
         "card-info",
         "change-notetype",
         "deck-options",
+        "conversation",
         "import-anki-package",
         "import-csv",
         "import-page",

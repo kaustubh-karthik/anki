@@ -1429,6 +1429,10 @@ title="{}" {}>{}</button>""".format(
         if not launcher_executable():
             m.action_upgrade_downgrade.setVisible(False)
         qconnect(m.actionPreferences.triggered, self.onPrefs)
+        # Conversation Practice (backend-first feature; UI is a thin Svelte wrapper)
+        action = QAction("Conversation Practice…", self)
+        qconnect(action.triggered, self.onConversationPractice)
+        m.menuTools.addAction(action)
 
         # View
         qconnect(
@@ -1449,6 +1453,11 @@ title="{}" {}>{}</button>""".format(
 
     def updateTitleBar(self) -> None:
         self.setWindowTitle("Anki")
+
+    def onConversationPractice(self) -> None:
+        from aqt.conversation import open_conversation_practice
+
+        open_conversation_practice()
 
     # View
     ##########################################################################

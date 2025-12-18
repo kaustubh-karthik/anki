@@ -163,6 +163,7 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 - Added backend-only \"Plan my reply\" contract + CLI command and extended telemetry with confidence + lookup timing + repair moves; wrap scoring now incorporates these signals for reinforcement selection.
 - Implemented a no-UI card suggestion pipeline: wrap-derived suggestions can be applied to a chosen deck via CLI, creating tagged Basic notes deterministically.
 - Refactored OpenAI JSON calls into a shared client, wired plan-reply OpenAI provider, and added an offline glossary cache with CLI rebuild/lookup for instant token popups without network.
+- Added an initial desktop UI scaffold: a SvelteKit `conversation` page and a Qt dialog that loads it via `load_sveltekit_page()` with basic bridge commands (`init`, `start`, `turn`, `gloss`). (TS tests not runnable in this environment due to missing Node toolchain.)
 
 ## Open Issues
 
