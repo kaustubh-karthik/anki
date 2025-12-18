@@ -14,13 +14,56 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let decksText = "Korean";
     let topicId = "room_objects";
     let message = "";
-    let confidence: "confident" | "unsure" | "guessing" | null = null;
-    let transcript: Array<{ role: "user" | "assistant"; text: string }> = [];
+    type Confidence = "confident" | "unsure" | "guessing" | null;
+    let confidence: Confidence = null;
+    type AssistantResponse = NonNullable<
+        Extract<ConversationTurnResponse, { ok: true }>["response"]
+    >;
+    type Turn = {
+        user_text_ko: string;
+        confidence: Confidence;
+        assistant: AssistantResponse;
+    };
+    let turns: Turn[] = [];
+    let showHintByTurn: Record<number, boolean> = {};
+    let showExplainByTurn: Record<number, boolean> = {};
+    let showIntentByTurn: Record<number, boolean> = {};
     let lastGloss: string | null = null;
     let error: string | null = null;
     let intentEn = "";
     let replyOptions: string[] = [];
     let applyDeck = "Korean";
+
+    function sendEvent(payload: Record<string, unknown>): void {
+        if (!bridgeCommandsAvailable()) {
+            return;
+        }
+        bridgeCommand(buildConversationCommand("event", payload));
+    }
+
+    function toggleByIndex(
+        map: Record<number, boolean>,
+        index: number,
+    ): Record<number, boolean> {
+        return { ...map, [index]: !map[index] };
+    }
+
+    function practiceTargets(index: number): void {
+        const turn = turns[index];
+        const targets = turn?.assistant?.targets_used ?? [];
+        for (const itemId of targets) {
+            if (itemId.startsWith("lexeme:")) {
+                sendEvent({
+                    type: "practice_again",
+                    token: itemId.slice("lexeme:".length),
+                });
+            }
+        }
+    }
+
+    function markConfusingMessage(index: number): void {
+        sendEvent({ type: "mark_confusing_message", turn_index: index + 1 });
+    }
 
     function start(): void {
         error = null;
@@ -40,7 +83,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     return;
                 }
                 started = true;
-                transcript = [];
+                turns = [];
+                showHintByTurn = {};
+                showExplainByTurn = {};
+                showIntentByTurn = {};
             },
         );
     }
@@ -55,7 +101,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         if (!text) {
             return;
         }
-        transcript = [...transcript, { role: "user", text }];
         message = "";
         bridgeCommand(
             buildConversationCommand("turn", { text_ko: text, confidence }),
@@ -64,10 +109,13 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     error = resp?.error ?? "Turn failed.";
                     return;
                 }
-                transcript = [
-                    ...transcript,
-                    { role: "assistant", text: resp.response.assistant_reply_ko },
-                    { role: "assistant", text: resp.response.follow_up_question_ko },
+                turns = [
+                    ...turns,
+                    {
+                        user_text_ko: text,
+                        confidence,
+                        assistant: resp.response,
+                    },
                 ];
             },
         );
@@ -84,13 +132,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 lastGloss = null;
             }
         });
-    }
-
-    function logEvent(type: string, token?: string): void {
-        if (!bridgeCommandsAvailable()) {
-            return;
-        }
-        bridgeCommand(buildConversationCommand("event", { type, token }));
     }
 
     function refreshWrap(): void {
@@ -154,28 +195,116 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     </div>
 
     <div class="chat">
-        {#each transcript as line}
-            <div class={`msg ${line.role}`}>
-                {#each tokenizeForUi(line.text) as tok}
-                    {#if tok.kind === "word"}
-                        <button
-                            type="button"
-                            class="tok"
-                            aria-label={`token ${tok.text}`}
-                            on:mouseenter={() => gloss(tok.text)}
-                            on:click={() => logEvent("dont_know", tok.text)}
-                            on:dblclick={() => logEvent("practice_again", tok.text)}
-                            on:contextmenu={(e) => {
-                                e.preventDefault();
-                                logEvent("mark_confusing", tok.text);
-                            }}
-                        >
-                            {tok.text}
-                        </button>
-                    {:else}
-                        <span>{tok.text}</span>
-                    {/if}
-                {/each}
+        {#each turns as turn, idx}
+            <div class="msg user">{turn.user_text_ko}</div>
+
+            <div class="msg assistant">
+                <div class="assistantText">
+                    <div>
+                        {#each tokenizeForUi(turn.assistant.assistant_reply_ko) as tok}
+                            {#if tok.kind === "word"}
+                                <button
+                                    type="button"
+                                    class="tok"
+                                    aria-label={`token ${tok.text}`}
+                                    on:mouseenter={() => gloss(tok.text)}
+                                    on:click={() =>
+                                        sendEvent({
+                                            type: "dont_know",
+                                            token: tok.text,
+                                        })}
+                                    on:dblclick={() =>
+                                        sendEvent({
+                                            type: "practice_again",
+                                            token: tok.text,
+                                        })}
+                                    on:contextmenu={(e) => {
+                                        e.preventDefault();
+                                        sendEvent({
+                                            type: "mark_confusing",
+                                            token: tok.text,
+                                        });
+                                    }}
+                                >
+                                    {tok.text}
+                                </button>
+                            {:else}
+                                <span>{tok.text}</span>
+                            {/if}
+                        {/each}
+                    </div>
+                    <div>{turn.assistant.follow_up_question_ko}</div>
+                </div>
+
+                <div class="row">
+                    <button
+                        type="button"
+                        on:click={() =>
+                            (showHintByTurn = toggleByIndex(showHintByTurn, idx))}
+                    >
+                        Hint
+                    </button>
+                    <button
+                        type="button"
+                        on:click={() =>
+                            (showExplainByTurn = toggleByIndex(showExplainByTurn, idx))}
+                    >
+                        Explain
+                    </button>
+                    <button
+                        type="button"
+                        on:click={() =>
+                            (showIntentByTurn = toggleByIndex(showIntentByTurn, idx))}
+                    >
+                        Translate
+                    </button>
+                    <button type="button" on:click={() => practiceTargets(idx)}>
+                        Practice this
+                    </button>
+                    <button type="button" on:click={() => markConfusingMessage(idx)}>
+                        Mark confusing
+                    </button>
+                </div>
+
+                {#if showHintByTurn[idx]}
+                    <div class="gloss">
+                        <div>
+                            targets_used: {(turn.assistant.targets_used ?? []).join(
+                                ", ",
+                            )}
+                        </div>
+                        {#if (turn.assistant.unexpected_tokens ?? []).length}
+                            <div>
+                                unexpected_tokens: {(
+                                    turn.assistant.unexpected_tokens ?? []
+                                ).join(", ")}
+                            </div>
+                        {/if}
+                    </div>
+                {/if}
+
+                {#if showExplainByTurn[idx]}
+                    <div class="gloss">
+                        {#if turn.assistant.micro_feedback}
+                            <div>{turn.assistant.micro_feedback.content_ko}</div>
+                            {#if turn.assistant.micro_feedback.content_en}
+                                <div>{turn.assistant.micro_feedback.content_en}</div>
+                            {/if}
+                        {:else}
+                            <div>(no feedback)</div>
+                        {/if}
+                    </div>
+                {/if}
+
+                {#if showIntentByTurn[idx]}
+                    <div class="gloss">
+                        {#if turn.assistant.suggested_user_intent_en}
+                            <div>{turn.assistant.suggested_user_intent_en}</div>
+                        {:else}
+                            <div>(no translation)</div>
+                        {/if}
+                    </div>
+                {/if}
             </div>
         {/each}
     </div>
