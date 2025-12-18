@@ -425,7 +425,16 @@ class ConversationDialog(QDialog):
                         job2["result"] = result
                         self._busy = False
             else:
-                return {"ok": True, "status": "pending"}
+                return {
+                    "ok": True,
+                    "status": "pending",
+                    "debug": {
+                        "kind": job.get("kind"),
+                        "future_done": bool(
+                            isinstance(fut, Future) and fut.done()  # type: ignore[arg-type]
+                        ),
+                    },
+                }
 
         with self._job_lock:
             job = self._jobs.get(job_id)
@@ -433,7 +442,12 @@ class ConversationDialog(QDialog):
                 return {"ok": False, "error": "unknown job"}
             result = job.get("result", {"ok": False, "error": "missing result"})
             del self._jobs[job_id]
-        return {"ok": True, "status": "done", "result": result}
+        return {
+            "ok": True,
+            "status": "done",
+            "result": result,
+            "debug": {"kind": job.get("kind")},
+        }
 
     def _flush_queued_events(self) -> None:
         if self._session is None:

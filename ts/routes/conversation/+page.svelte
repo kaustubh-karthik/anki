@@ -47,6 +47,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let showExportTelemetry = false;
     let telemetryJson = "";
     let inFlight = false;
+    let lastJobDebug: string | null = null;
 
     function sleep(ms: number): Promise<void> {
         return new Promise((resolve) => setTimeout(resolve, ms));
@@ -64,6 +65,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             const resp: any = await bridgeCommandPromise(
                 buildConversationCommand("poll", { job_id: jobId }),
             );
+            lastJobDebug = resp ? JSON.stringify(resp) : String(resp);
             if (!resp?.ok) {
                 return resp;
             }
@@ -716,6 +718,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     {/if}
     {#if error}
         <div class="error">{error}</div>
+    {/if}
+    {#if lastJobDebug}
+        <div class="gloss">job: {lastJobDebug}</div>
     {/if}
 
     <div class="row">
