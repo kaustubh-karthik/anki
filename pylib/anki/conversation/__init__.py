@@ -5,6 +5,7 @@ from .gateway import (
     ConversationProvider,
     OpenAIConversationProvider,
 )
+from .grammar import DEFAULT_KO_GRAMMAR, select_grammar_patterns
 from .planner import ConversationPlanner, PlannerState
 from .snapshot import DeckSnapshot, build_deck_snapshot
 from .telemetry import ConversationTelemetryStore
@@ -23,6 +24,7 @@ __all__ = [
     "ConversationRequest",
     "ConversationResponse",
     "ConversationTelemetryStore",
+    "DEFAULT_KO_GRAMMAR",
     "DeckSnapshot",
     "GenerationInstructions",
     "LanguageConstraints",
@@ -30,4 +32,5 @@ __all__ = [
     "PlannerState",
     "build_deck_snapshot",
     "compute_session_wrap",
+    "select_grammar_patterns",
 ]

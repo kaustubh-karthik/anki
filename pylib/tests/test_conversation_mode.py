@@ -462,3 +462,30 @@ def test_planner_micro_spacing_reuses_due_targets() -> None:
         assert c3.must_target[0].surface_forms[0] == first
     finally:
         col.close()
+
+
+def test_planner_emits_allowed_grammar_patterns() -> None:
+    col = getEmptyCol()
+    try:
+        did = col.decks.id("Korean")
+        col.decks.select(DeckId(did))
+        note = col.newNote()
+        note["Front"] = "사이"
+        note["Back"] = "between"
+        col.addNote(note)
+        for card in note.cards():
+            card.did = did
+            card.flush()
+
+        snapshot = build_deck_snapshot(col, [DeckId(did)], include_fsrs_metrics=False)
+        planner = ConversationPlanner(snapshot)
+        state = planner.initial_state(summary="x")
+        _, constraints, _ = planner.plan_turn(
+            state,
+            UserInput(text_ko="응"),
+            must_target_count=1,
+            mastery={},
+        )
+        assert any("사이에" in gp.pattern for gp in constraints.allowed_grammar)
+    finally:
+        col.close()

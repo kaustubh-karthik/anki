@@ -13,6 +13,7 @@ from .types import (
     UserInput,
 )
 from .validation import tokenize_for_validation
+from .grammar import select_grammar_patterns
 
 BASE_ALLOWED_SUPPORT: tuple[str, ...] = (
     # Minimal Korean glue vocabulary to make safe-mode usable.
@@ -148,7 +149,9 @@ class ConversationPlanner:
         constraints = LanguageConstraints(
             must_target=tuple(must_targets),
             allowed_support=allowed_support,
-            allowed_grammar=(),
+            allowed_grammar=select_grammar_patterns(
+                must_targets=tuple(t.surface_forms[0] for t in must_targets)
+            ),
             forbidden=ForbiddenConstraints(introduce_new_vocab=True, sentence_length_max=20),
         )
 
