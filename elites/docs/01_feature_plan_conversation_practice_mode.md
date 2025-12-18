@@ -161,6 +161,7 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 - Implemented session wrap-up output (strengths/reinforce/suggested cards) and deck-derived gloss extraction for offline-first token popups.
 - Added deterministic micro-spacing/avoidance in the planner (`observe_turn()` + scheduled reuse), and expanded telemetry signals/tests (hover does not pollute mastery).
 - Added backend-only \"Plan my reply\" contract + CLI command and extended telemetry with confidence + lookup timing + repair moves; wrap scoring now incorporates these signals for reinforcement selection.
+- Implemented a no-UI card suggestion pipeline: wrap-derived suggestions can be applied to a chosen deck via CLI, creating tagged Basic notes deterministically.
 
 ## Open Issues
 

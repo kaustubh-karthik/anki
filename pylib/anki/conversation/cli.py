@@ -18,6 +18,7 @@ from .planner import ConversationPlanner
 from .redaction import redact_text
 from .settings import ConversationSettings, RedactionLevel
 from .snapshot import build_deck_snapshot
+from .suggest import apply_suggested_cards, suggestions_from_wrap
 from .telemetry import ConversationTelemetryStore
 from .types import ConversationRequest, GenerationInstructions, UserInput
 from .validation import tokenize_for_validation
@@ -124,6 +125,11 @@ def main(argv: list[str] | None = None) -> None:
     plan.add_argument("--model", default="gpt-5-nano")
     plan.add_argument("--safe-mode", action=argparse.BooleanOptionalAction, default=True)
 
+    apply_sug = sub.add_parser("apply-suggestions", help="Apply suggested cards from the most recent session wrap")
+    apply_sug.add_argument("--collection", required=True)
+    apply_sug.add_argument("--deck", required=True, help="Target deck name for added notes")
+    apply_sug.add_argument("--limit-sessions", type=int, default=1)
+
     args = parser.parse_args(argv)
 
     if args.cmd == "run":
@@ -134,6 +140,8 @@ def main(argv: list[str] | None = None) -> None:
         _cmd_export(args)
     elif args.cmd == "plan-reply":
         _cmd_plan_reply(args)
+    elif args.cmd == "apply-suggestions":
+        _cmd_apply_suggestions(args)
 
 
 def _cmd_run(args: argparse.Namespace) -> None:
@@ -415,6 +423,37 @@ def _cmd_plan_reply(args: argparse.Namespace) -> None:
         )
         resp = gateway.run(request=req)
         print(orjson.dumps(resp.to_json_dict()).decode("utf-8"))
+    finally:
+        col.close()
+
+
+def _cmd_apply_suggestions(args: argparse.Namespace) -> None:
+    col = Collection(args.collection)
+    try:
+        did = col.decks.id_for_name(args.deck)
+        if not did:
+            raise SystemExit(f"deck not found: {args.deck}")
+
+        rows = col.db.all(
+            "select summary_json from elites_conversation_sessions where summary_json is not null order by id desc limit ?",
+            args.limit_sessions,
+        )
+        if not rows:
+            raise SystemExit("no session summaries found")
+
+        # Use most recent summary that contains a wrap.
+        summary_json = None
+        for (sj,) in rows:
+            if isinstance(sj, str) and sj:
+                summary_json = sj
+                break
+        if not summary_json:
+            raise SystemExit("no valid session wrap found")
+        summary = json.loads(summary_json)
+        wrap = summary.get("wrap", {})
+        suggestions = suggestions_from_wrap(wrap, deck_id=int(did))
+        created = apply_suggested_cards(col, suggestions)
+        print(orjson.dumps({"created_note_ids": created}).decode("utf-8"))
     finally:
         col.close()
 

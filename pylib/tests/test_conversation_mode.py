@@ -14,6 +14,7 @@ from anki.conversation.export import export_conversation_telemetry
 from anki.conversation.redaction import redact_text
 from anki.conversation.settings import RedactionLevel
 from anki.conversation.plan_reply import FakePlanReplyProvider, PlanReplyGateway, PlanReplyRequest
+from anki.conversation.suggest import apply_suggested_cards, suggestions_from_wrap
 from anki.conversation.types import (
     ConversationRequest,
     ConversationState,
@@ -412,6 +413,22 @@ def test_plan_reply_gateway_rewrites_on_unexpected_tokens() -> None:
     resp = gateway.run(request=req)
     assert provider.i == 2
     assert resp.unexpected_tokens == ()
+
+
+def test_apply_suggested_cards_creates_basic_notes() -> None:
+    col = getEmptyCol()
+    try:
+        suggestions = [
+            {"front": "의자", "back": "chair", "tags": ["conv_suggested"]},
+        ]
+        wrap = {"suggested_cards": suggestions}
+        card_suggestions = suggestions_from_wrap(wrap, deck_id=1)
+        note_ids = apply_suggested_cards(col, card_suggestions)
+        assert len(note_ids) == 1
+        assert col.note_count() == 1
+        assert "conv_suggested" in col.tags.all()
+    finally:
+        col.close()
 
 
 def test_mastery_upsert_and_increment() -> None:

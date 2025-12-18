@@ -13,6 +13,7 @@ from .planner import ConversationPlanner, PlannerState
 from .redaction import redact_text
 from .settings import ConversationSettings, RedactionLevel
 from .snapshot import DeckSnapshot, build_deck_snapshot
+from .suggest import apply_suggested_cards, suggestions_from_wrap
 from .telemetry import ConversationTelemetryStore
 from .types import (
     ConversationRequest,
@@ -41,6 +42,7 @@ __all__ = [
     "PlanReplyGateway",
     "PlanReplyProvider",
     "PlanReplyRequest",
+    "apply_suggested_cards",
     "build_deck_snapshot",
     "compute_session_wrap",
     "check_response_against_request",
@@ -49,5 +51,6 @@ __all__ = [
     "RedactionLevel",
     "select_collocation_targets",
     "select_grammar_patterns",
+    "suggestions_from_wrap",
 ]
 from .contract import check_response_against_request
