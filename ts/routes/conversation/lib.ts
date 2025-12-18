@@ -41,3 +41,27 @@ export function buildConversationCommand(
     const json = payload ? JSON.stringify(payload) : "{}";
     return `conversation:${kind}:${json}`;
 }
+
+export type UiTokenKind = "word" | "space" | "punct";
+export type UiToken = { text: string; kind: UiTokenKind };
+
+export function tokenizeForUi(text: string): UiToken[] {
+    if (!text) {
+        return [];
+    }
+    const re = /[\w가-힣]+|\s+|[^\s\w가-힣]+/gu;
+    const out: UiToken[] = [];
+    for (const match of text.matchAll(re)) {
+        const tok = match[0];
+        let kind: UiTokenKind;
+        if (/^\s+$/.test(tok)) {
+            kind = "space";
+        } else if (/^[\w가-힣]+$/.test(tok)) {
+            kind = "word";
+        } else {
+            kind = "punct";
+        }
+        out.push({ text: tok, kind });
+    }
+    return out;
+}

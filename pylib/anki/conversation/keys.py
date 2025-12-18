@@ -23,4 +23,3 @@ def resolve_openai_api_key(*, api_key_file: str | Path = "gpt-api.txt") -> str |
             if val:
                 return val
     return read_api_key_file(api_key_file)
-

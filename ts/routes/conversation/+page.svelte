@@ -4,7 +4,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 -->
 <script lang="ts">
     import { bridgeCommand, bridgeCommandsAvailable } from "@tslib/bridgecommand";
-    import { buildConversationCommand, type ConversationTurnResponse } from "./lib";
+    import {
+        buildConversationCommand,
+        tokenizeForUi,
+        type ConversationTurnResponse,
+    } from "./lib";
 
     let started = false;
     let decksText = "Korean";
@@ -152,22 +156,25 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     <div class="chat">
         {#each transcript as line}
             <div class={`msg ${line.role}`}>
-                {#each line.text.split(" ") as tok}
-                    <button
-                        type="button"
-                        class="tok"
-                        aria-label={`token ${tok}`}
-                        on:mouseenter={() => gloss(tok)}
-                        on:click={() => logEvent("dont_know", tok)}
-                        on:dblclick={() => logEvent("practice_again", tok)}
-                        on:contextmenu={(e) => {
-                            e.preventDefault();
-                            logEvent("mark_confusing", tok);
-                        }}
-                    >
-                        {tok}
-                    </button>
-                    <span></span>
+                {#each tokenizeForUi(line.text) as tok}
+                    {#if tok.kind === "word"}
+                        <button
+                            type="button"
+                            class="tok"
+                            aria-label={`token ${tok.text}`}
+                            on:mouseenter={() => gloss(tok.text)}
+                            on:click={() => logEvent("dont_know", tok.text)}
+                            on:dblclick={() => logEvent("practice_again", tok.text)}
+                            on:contextmenu={(e) => {
+                                e.preventDefault();
+                                logEvent("mark_confusing", tok.text);
+                            }}
+                        >
+                            {tok.text}
+                        </button>
+                    {:else}
+                        <span>{tok.text}</span>
+                    {/if}
                 {/each}
             </div>
         {/each}

@@ -3,7 +3,7 @@
 
 import { expect, test } from "vitest";
 
-import { buildConversationCommand } from "./lib";
+import { buildConversationCommand, tokenizeForUi } from "./lib";
 
 test("buildConversationCommand init", () => {
     expect(buildConversationCommand("init")).toBe("conversation:init");
@@ -21,4 +21,17 @@ test("buildConversationCommand turn", () => {
 
 test("buildConversationCommand wrap", () => {
     expect(buildConversationCommand("wrap")).toBe("conversation:wrap");
+});
+
+test("tokenizeForUi splits Korean + punctuation + spaces", () => {
+    const toks = tokenizeForUi("응, 거기에 있어.");
+    expect(toks.map((t) => [t.text, t.kind])).toEqual([
+        ["응", "word"],
+        [",", "punct"],
+        [" ", "space"],
+        ["거기에", "word"],
+        [" ", "space"],
+        ["있어", "word"],
+        [".", "punct"],
+    ]);
 });
