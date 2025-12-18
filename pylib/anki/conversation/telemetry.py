@@ -8,6 +8,9 @@ import orjson
 
 from anki.collection import Collection
 
+MasteryCounters = dict[str, int]
+MasteryCache = dict[str, MasteryCounters]
+
 
 def _now_ms() -> int:
     return int(time.time() * 1000)
@@ -59,8 +62,29 @@ class ConversationTelemetryStore:
     def __post_init__(self) -> None:
         ensure_conversation_schema(self.col)
 
+    def load_mastery_cache(self, item_ids: list[str]) -> MasteryCache:
+        return self.get_mastery_bulk(item_ids)
+
     def bump_item(
         self,
+        *,
+        item_id: str,
+        kind: str,
+        value: str,
+        deltas: dict[str, int],
+    ) -> None:
+        cache = self.load_mastery_cache([item_id])
+        self.bump_item_cached(
+            cache,
+            item_id=item_id,
+            kind=kind,
+            value=value,
+            deltas=deltas,
+        )
+
+    def bump_item_cached(
+        self,
+        cache: MasteryCache,
         *,
         item_id: str,
         kind: str,
@@ -70,27 +94,24 @@ class ConversationTelemetryStore:
         """Upsert deterministic mastery counters for a lexeme/grammar item.
 
         Stored as a JSON object mapping counter names -> integers.
+        The provided cache is updated in-place and written back to the DB
+        without a read-before-write.
         """
 
-        now = _now_ms()
-        existing = self.col.db.scalar(
-            "select mastery_json from elites_conversation_items where item_id=?",
-            item_id,
-        )
-        if isinstance(existing, str) and existing:
-            mastery = orjson.loads(existing)
-        else:
+        mastery = cache.get(item_id)
+        if mastery is None:
             mastery = {}
-
-        if not isinstance(mastery, dict):
-            mastery = {}
+            cache[item_id] = mastery
 
         for key, delta in deltas.items():
-            current = mastery.get(key, 0)
-            if not isinstance(current, int):
-                current = 0
-            mastery[key] = current + int(delta)
+            mastery[key] = mastery.get(key, 0) + int(delta)
 
+        self._upsert_item(item_id=item_id, kind=kind, value=value, mastery=mastery)
+
+    def _upsert_item(
+        self, *, item_id: str, kind: str, value: str, mastery: MasteryCounters
+    ) -> None:
+        now = _now_ms()
         payload = orjson.dumps(mastery).decode("utf-8")
         self.col.db.executemany(
             """
@@ -113,7 +134,7 @@ on conflict(item_id) do update set
             f"select item_id, mastery_json from elites_conversation_items where item_id in ({placeholders})",
             *item_ids,
         )
-        out: dict[str, dict[str, int]] = {}
+        out: MasteryCache = {}
         for item_id, mastery_json in rows:
             if not isinstance(item_id, str) or not isinstance(mastery_json, str):
                 continue
@@ -123,7 +144,7 @@ on conflict(item_id) do update set
                 continue
             if not isinstance(parsed, dict):
                 continue
-            cleaned: dict[str, int] = {}
+            cleaned: MasteryCounters = {}
             for k, v in parsed.items():
                 if isinstance(k, str) and isinstance(v, int):
                     cleaned[k] = v

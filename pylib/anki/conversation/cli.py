@@ -120,6 +120,8 @@ def _cmd_run(args: argparse.Namespace) -> None:
 
         turns = _load_script(Path(args.script))
         lexeme_set = {item.lexeme for item in snapshot.items}
+        snapshot_item_ids = [str(item.item_id) for item in snapshot.items]
+        mastery_cache = telemetry.load_mastery_cache(snapshot_item_ids)
 
         provider: ConversationProvider
         if args.provider == "fake":
@@ -141,11 +143,8 @@ def _cmd_run(args: argparse.Namespace) -> None:
             user_input = UserInput(
                 text_ko=turn.user_text_ko, confidence=turn.confidence  # type: ignore[arg-type]
             )
-            mastery = telemetry.get_mastery_bulk(
-                [str(item.item_id) for item in snapshot.items]
-            )
             conv_state, constraints, instructions = planner.plan_turn(
-                state, user_input, mastery=mastery
+                state, user_input, mastery=mastery_cache
             )
             request = ConversationRequest(
                 system_role=SYSTEM_ROLE,
@@ -159,7 +158,8 @@ def _cmd_run(args: argparse.Namespace) -> None:
             # Deterministic usage signals from text-only mode (no UI required).
             for token in tokenize_for_validation(user_input.text_ko):
                 if token in lexeme_set:
-                    telemetry.bump_item(
+                    telemetry.bump_item_cached(
+                        mastery_cache,
                         item_id=f"lexeme:{token}",
                         kind="lexeme",
                         value=token,
@@ -167,7 +167,8 @@ def _cmd_run(args: argparse.Namespace) -> None:
                     )
             for token in tokenize_for_validation(response.assistant_reply_ko):
                 if token in lexeme_set:
-                    telemetry.bump_item(
+                    telemetry.bump_item_cached(
+                        mastery_cache,
                         item_id=f"lexeme:{token}",
                         kind="lexeme",
                         value=token,
@@ -187,7 +188,8 @@ def _cmd_run(args: argparse.Namespace) -> None:
                         )
                         if isinstance(token, str) and token:
                             if etype in ("dont_know", "practice_again", "mark_confusing"):
-                                telemetry.bump_item(
+                                telemetry.bump_item_cached(
+                                    mastery_cache,
                                     item_id=f"lexeme:{token}",
                                     kind="lexeme",
                                     value=token,
@@ -216,10 +218,7 @@ def _cmd_run(args: argparse.Namespace) -> None:
                 follow_up_question_ko=response.follow_up_question_ko,
             )
 
-        final_mastery = telemetry.get_mastery_bulk(
-            [str(item.item_id) for item in snapshot.items]
-        )
-        wrap = compute_session_wrap(snapshot=snapshot, mastery=final_mastery)
+        wrap = compute_session_wrap(snapshot=snapshot, mastery=mastery_cache)
         summary = {"turns": len(turns), "wrap": wrap}
         telemetry.end_session(session_id, summary=summary)
         print(
