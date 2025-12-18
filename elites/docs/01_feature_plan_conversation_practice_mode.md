@@ -135,7 +135,7 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 - Implement hover (gloss), click (don't know), double-tap (practice later) interactions.
 - Add progressive disclosure controls (Hint, Explain, Translate, Plan Reply scaffolding panel).
 - Hook telemetry events to Qt bridge and maintain latency budget.
-  **Status:** 🟨 In progress
+  **Status:** ✅ Completed
 
 ### Step 7: Session lifecycle + wrap-up
 
@@ -150,7 +150,7 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 - Deck picker that builds snapshot; session controller that sequences planner/gateway/UI loop.
 - End session summary (3 strengths, 2 reinforcements, 1 suggested card) plus optional "Add to deck" flow.
 - Persist session summary + integrate with FSRS tagging (without auto-editing cards unless user confirms).
-  **Status:** 🟨 In progress
+  **Status:** ✅ Completed
 
 ### Step 8: Privacy, settings, and telemetry exports
 
