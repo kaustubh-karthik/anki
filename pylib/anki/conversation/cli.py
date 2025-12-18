@@ -16,6 +16,8 @@ from .planner import ConversationPlanner
 from .snapshot import build_deck_snapshot
 from .telemetry import ConversationTelemetryStore
 from .types import ConversationRequest, UserInput
+from .validation import tokenize_for_validation
+from .wrap import compute_session_wrap
 
 SYSTEM_ROLE = (
     "You are a Korean conversation partner for a learner. "
@@ -117,6 +119,7 @@ def _cmd_run(args: argparse.Namespace) -> None:
         session_id = telemetry.start_session(list(snapshot.deck_ids))
 
         turns = _load_script(Path(args.script))
+        lexeme_set = {item.lexeme for item in snapshot.items}
 
         provider: ConversationProvider
         if args.provider == "fake":
@@ -153,6 +156,24 @@ def _cmd_run(args: argparse.Namespace) -> None:
             )
             response = gateway.run_turn(request=request)
 
+            # Deterministic usage signals from text-only mode (no UI required).
+            for token in tokenize_for_validation(user_input.text_ko):
+                if token in lexeme_set:
+                    telemetry.bump_item(
+                        item_id=f"lexeme:{token}",
+                        kind="lexeme",
+                        value=token,
+                        deltas={"user_used": 1},
+                    )
+            for token in tokenize_for_validation(response.assistant_reply_ko):
+                if token in lexeme_set:
+                    telemetry.bump_item(
+                        item_id=f"lexeme:{token}",
+                        kind="lexeme",
+                        value=token,
+                        deltas={"assistant_used": 1},
+                    )
+
             if turn.events:
                 for event in turn.events:
                     etype = event.get("type")
@@ -165,7 +186,7 @@ def _cmd_run(args: argparse.Namespace) -> None:
                             payload=event,
                         )
                         if isinstance(token, str) and token:
-                            if etype in ("dont_know", "practice_again"):
+                            if etype in ("dont_know", "practice_again", "mark_confusing"):
                                 telemetry.bump_item(
                                     item_id=f"lexeme:{token}",
                                     kind="lexeme",
@@ -187,12 +208,28 @@ def _cmd_run(args: argparse.Namespace) -> None:
                 }
             )
             state.last_assistant_turn_ko = response.assistant_reply_ko
-
-        telemetry.end_session(session_id, summary={"turns": len(turns)})
-        print(
-            orjson.dumps({"session_id": session_id, "transcript": transcript}).decode(
-                "utf-8"
+            planner.observe_turn(
+                state,
+                constraints=constraints,
+                user_input=user_input,
+                assistant_reply_ko=response.assistant_reply_ko,
+                follow_up_question_ko=response.follow_up_question_ko,
             )
+
+        final_mastery = telemetry.get_mastery_bulk(
+            [str(item.item_id) for item in snapshot.items]
+        )
+        wrap = compute_session_wrap(snapshot=snapshot, mastery=final_mastery)
+        summary = {"turns": len(turns), "wrap": wrap}
+        telemetry.end_session(session_id, summary=summary)
+        print(
+            orjson.dumps(
+                {
+                    "session_id": session_id,
+                    "transcript": transcript,
+                    "wrap": wrap,
+                }
+            ).decode("utf-8")
         )
     finally:
         col.close()

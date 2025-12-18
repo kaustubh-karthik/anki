@@ -129,13 +129,14 @@ def test_cli_run_is_fully_automatable_and_writes_db(tmp_path) -> None:
             assert opened.db.scalar("select count() from elites_conversation_sessions") == 1
             # one dont_know + one turn event
             assert opened.db.scalar("select count() from elites_conversation_events") == 2
-            assert (
-                opened.db.scalar(
-                    "select mastery_json from elites_conversation_items where item_id=?",
-                    "lexeme:의자",
-                )
-                is not None
+            mastery_json = opened.db.scalar(
+                "select mastery_json from elites_conversation_items where item_id=?",
+                "lexeme:의자",
             )
+            assert isinstance(mastery_json, str)
+            mastery = json.loads(mastery_json)
+            assert mastery["dont_know"] == 1
+            assert mastery["assistant_used"] == 1
         finally:
             opened.close()
     finally:
@@ -162,6 +163,27 @@ def test_snapshot_extracts_lexemes_from_selected_deck() -> None:
         snapshot = build_deck_snapshot(col, [DeckId(did)])
         assert snapshot.deck_ids == (did,)
         assert any(item.lexeme == "사이" for item in snapshot.items)
+    finally:
+        col.close()
+
+
+def test_snapshot_includes_gloss_when_available() -> None:
+    col = getEmptyCol()
+    try:
+        did = col.decks.id("Korean")
+        col.decks.select(DeckId(did))
+
+        note = col.newNote()
+        note["Front"] = "의자"
+        note["Back"] = "<b>chair</b>"
+        col.addNote(note)
+        for card in note.cards():
+            card.did = did
+            card.flush()
+
+        snapshot = build_deck_snapshot(col, [DeckId(did)])
+        item = next(i for i in snapshot.items if i.lexeme == "의자")
+        assert item.gloss == "chair"
     finally:
         col.close()
 
@@ -269,6 +291,85 @@ def test_mastery_upsert_and_increment() -> None:
         col.close()
 
 
+def test_hover_does_not_create_mastery_signal(tmp_path) -> None:
+    from anki.conversation import cli
+    from anki.collection import Collection
+
+    col = getEmptyCol()
+    try:
+        collection_path = col.path
+        did = col.decks.id("Korean")
+        note = col.newNote()
+        note["Front"] = "의자"
+        note["Back"] = "chair"
+        col.addNote(note)
+        for card in note.cards():
+            card.did = did
+            card.flush()
+        col.close()
+
+        script_path = tmp_path / "script.json"
+        script_path.write_text(
+            json.dumps(
+                [{"text_ko": "응", "events": [{"type": "hover", "token": "의자"}]}],
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        provider_script_path = tmp_path / "provider.json"
+        provider_script_path.write_text(
+            json.dumps(
+                [
+                    {
+                        "assistant_reply_ko": "의자 있어요.",
+                        "follow_up_question_ko": "뭐가 있어요?",
+                        "micro_feedback": {"type": "none", "content_ko": "", "content_en": ""},
+                        "suggested_user_intent_en": None,
+                        "targets_used": [],
+                        "unexpected_tokens": [],
+                    }
+                ],
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        cli.main(
+            [
+                "run",
+                "--collection",
+                collection_path,
+                "--deck",
+                "Korean",
+                "--script",
+                str(script_path),
+                "--provider",
+                "fake",
+                "--provider-script",
+                str(provider_script_path),
+            ]
+        )
+
+        opened = Collection(collection_path)
+        try:
+            mastery_json = opened.db.scalar(
+                "select mastery_json from elites_conversation_items where item_id=?",
+                "lexeme:의자",
+            )
+            # hover shouldn't create dont_know/practice_again/mark_confusing, but assistant_used will exist
+            assert isinstance(mastery_json, str)
+            mastery = json.loads(mastery_json)
+            assert mastery.get("hover") is None
+            assert mastery.get("dont_know") is None
+        finally:
+            opened.close()
+    finally:
+        try:
+            col.close()
+        except Exception:
+            pass
+
+
 def test_planner_prioritizes_mastery_weak_items() -> None:
     col = getEmptyCol()
     try:
@@ -303,5 +404,61 @@ def test_planner_prioritizes_mastery_weak_items() -> None:
             mastery=mastery,
         )
         assert constraints.must_target[0].surface_forms[0] == "책상"
+    finally:
+        col.close()
+
+
+def test_planner_micro_spacing_reuses_due_targets() -> None:
+    col = getEmptyCol()
+    try:
+        did = col.decks.id("Korean")
+        col.decks.select(DeckId(did))
+        for lexeme in ["의자", "책상", "가방", "문"]:
+            note = col.newNote()
+            note["Front"] = lexeme
+            note["Back"] = "x"
+            col.addNote(note)
+            for card in note.cards():
+                card.did = did
+                card.flush()
+
+        snapshot = build_deck_snapshot(col, [DeckId(did)], include_fsrs_metrics=False)
+        planner = ConversationPlanner(snapshot)
+        state = planner.initial_state(summary="x")
+
+        # Turn 1: pick first by lexical order (with equal mastery), schedule reuse after 2 turns
+        _, c1, _ = planner.plan_turn(
+            state,
+            UserInput(text_ko="응"),
+            must_target_count=1,
+            mastery={},
+            reuse_delay_turns=2,
+        )
+        first = c1.must_target[0].surface_forms[0]
+        planner.observe_turn(
+            state,
+            constraints=c1,
+            user_input=UserInput(text_ko="응"),
+            assistant_reply_ko="네.",
+            follow_up_question_ko="뭐예요?",
+        )
+
+        # Turn 2/3: other targets
+        _, c2, _ = planner.plan_turn(
+            state, UserInput(text_ko="응"), must_target_count=1, mastery={}, reuse_delay_turns=2
+        )
+        planner.observe_turn(
+            state,
+            constraints=c2,
+            user_input=UserInput(text_ko="응"),
+            assistant_reply_ko="네.",
+            follow_up_question_ko="뭐예요?",
+        )
+        _, c3, _ = planner.plan_turn(
+            state, UserInput(text_ko="응"), must_target_count=1, mastery={}, reuse_delay_turns=2
+        )
+
+        # Turn 3 should have reused the first target (due)
+        assert c3.must_target[0].surface_forms[0] == first
     finally:
         col.close()

@@ -6,6 +6,7 @@ from typing import Iterable
 
 from anki.collection import Collection
 from anki.decks import DeckId
+from anki.utils import strip_html
 
 from .types import ItemId
 
@@ -20,6 +21,7 @@ class SnapshotItem:
     source_card_id: int
     stability: float | None = None
     difficulty: float | None = None
+    gloss: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +35,7 @@ def build_deck_snapshot(
     deck_ids: Iterable[DeckId],
     *,
     lexeme_field_index: int = 0,
+    gloss_field_index: int | None = 1,
     max_items: int = 5000,
     include_fsrs_metrics: bool = True,
 ) -> DeckSnapshot:
@@ -63,6 +66,10 @@ def build_deck_snapshot(
         raw = fields[lexeme_field_index].strip()
         if not raw:
             continue
+        gloss: str | None = None
+        if gloss_field_index is not None and gloss_field_index < len(fields):
+            raw_gloss = strip_html(fields[gloss_field_index]).strip()
+            gloss = raw_gloss if raw_gloss else None
 
         lexeme = _extract_lexeme(raw)
         if not lexeme:
@@ -82,6 +89,7 @@ def build_deck_snapshot(
                 source_card_id=int(card_id),
                 stability=stability,
                 difficulty=difficulty,
+                gloss=gloss,
             )
         )
 

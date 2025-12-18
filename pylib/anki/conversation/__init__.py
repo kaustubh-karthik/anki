@@ -14,6 +14,7 @@ from .types import (
     GenerationInstructions,
     LanguageConstraints,
 )
+from .wrap import compute_session_wrap
 
 __all__ = [
     "ConversationGateway",
@@ -28,5 +29,5 @@ __all__ = [
     "OpenAIConversationProvider",
     "PlannerState",
     "build_deck_snapshot",
+    "compute_session_wrap",
 ]
-
