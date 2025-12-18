@@ -218,13 +218,19 @@ Deliver a built-in conversational practice surface (Korean-first) that leverages
 
 - Fixed a real-world deck snapshot bug: lexeme extraction now strips HTML in the source field (matching gloss extraction), with a regression test.
 
+### 2025-12-18 — Codex
+
+- Refactored the backend CLI to default to persisted `ConversationSettings` when flags are omitted, and centralized OpenAI key resolution (`OPENAI_API_KEY`/`ANKI_OPENAI_API_KEY` → `gpt-api.txt` fallback).
+- Added opt-in redaction for telemetry exports (defaulting to the saved redaction level) and unit tests to verify exported JSON is redacted deterministically.
+- Ran `./ninja check` successfully (format/lints/mypy/pytest).
+
 ## Open Issues
 
 - [ ] Decide on default local dictionary source and licensing (offline-first, redistributable).
 - [ ] Clarify how planner handles multi-deck selection with conflicting templates.
 - [ ] Evaluate whether FSRS mastery signals should influence core scheduler or stay scoped to conversation mode.
 - [ ] Expand grammar/collocation catalog beyond the current minimal built-ins.
-- [ ] Make UI/CLI key management use persisted settings instead of reading `gpt-api.txt` directly (keep file as optional dev convenience).
+- [x] Centralize key resolution and keep `gpt-api.txt` as an optional dev convenience (do not persist secrets in config).
 
 ## Agent Instructions (MANDATORY)
 

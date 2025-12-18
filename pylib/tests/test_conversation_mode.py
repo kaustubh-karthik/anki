@@ -91,6 +91,38 @@ def test_export_telemetry_json_roundtrip() -> None:
         col.close()
 
 
+def test_export_telemetry_applies_redaction() -> None:
+    col = getEmptyCol()
+    try:
+        store = ConversationTelemetryStore(col)
+        sid = store.start_session([1])
+        store.log_event(
+            session_id=sid,
+            turn_index=0,
+            event_type="turn",
+            payload={
+                "user": "email a@b.com",
+                "assistant": {"assistant_reply_ko": "url https://x.y"},
+            },
+        )
+        store.end_session(sid, summary={"note": "email a@b.com"})
+
+        exported = export_conversation_telemetry(
+            col, limit_sessions=10, redaction_level=RedactionLevel.minimal
+        )
+        assert exported.events
+        payload_json = exported.events[0]["payload_json"]
+        assert isinstance(payload_json, str)
+        assert "[REDACTED_EMAIL]" in payload_json
+        assert "[REDACTED_URL]" in payload_json
+
+        summary_json = exported.sessions[0]["summary_json"]
+        assert isinstance(summary_json, str)
+        assert "[REDACTED_EMAIL]" in summary_json
+    finally:
+        col.close()
+
+
 def test_cli_run_is_fully_automatable_and_writes_db(tmp_path) -> None:
     from anki.conversation import cli
 

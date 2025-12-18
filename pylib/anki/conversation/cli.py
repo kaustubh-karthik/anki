@@ -28,7 +28,7 @@ from .gateway import (
     OpenAIConversationProvider,
 )
 from .glossary import lookup_gloss, rebuild_glossary_from_snapshot
-from .keys import read_api_key_file
+from .keys import resolve_openai_api_key
 from .plan_reply import (
     FakePlanReplyProvider,
     OpenAIPlanReplyProvider,
@@ -117,19 +117,16 @@ def main(argv: list[str] | None = None) -> None:
     run.add_argument(
         "--provider",
         choices=["fake", "openai"],
-        default="fake",
-        help="LLM provider (default: fake)",
+        help="LLM provider (default: from saved settings)",
     )
     run.add_argument("--api-key-file", default="gpt-api.txt")
-    run.add_argument("--model", default="gpt-5-nano")
-    run.add_argument(
-        "--redaction", choices=[e.value for e in RedactionLevel], default="minimal"
-    )
-    run.add_argument("--safe-mode", action=argparse.BooleanOptionalAction, default=True)
-    run.add_argument("--lexeme-field-index", type=int, default=0)
-    run.add_argument("--gloss-field-index", type=int, default=1)
+    run.add_argument("--model")
+    run.add_argument("--redaction", choices=[e.value for e in RedactionLevel])
+    run.add_argument("--safe-mode", action=argparse.BooleanOptionalAction, default=None)
+    run.add_argument("--lexeme-field-index", type=int)
+    run.add_argument("--gloss-field-index", type=int)
     run.add_argument("--no-gloss-field", action="store_true")
-    run.add_argument("--snapshot-max-items", type=int, default=5000)
+    run.add_argument("--snapshot-max-items", type=int)
     run.add_argument(
         "--provider-script",
         help="JSON file with scripted assistant responses (fake provider only)",
@@ -140,16 +137,17 @@ def main(argv: list[str] | None = None) -> None:
     )
     snap.add_argument("--collection", required=True)
     snap.add_argument("--deck", action="append", required=True)
-    snap.add_argument("--lexeme-field-index", type=int, default=0)
-    snap.add_argument("--gloss-field-index", type=int, default=1)
+    snap.add_argument("--lexeme-field-index", type=int)
+    snap.add_argument("--gloss-field-index", type=int)
     snap.add_argument("--no-gloss-field", action="store_true")
-    snap.add_argument("--snapshot-max-items", type=int, default=5000)
+    snap.add_argument("--snapshot-max-items", type=int)
 
     export = sub.add_parser(
         "export-telemetry", help="Export stored conversation telemetry as JSON"
     )
     export.add_argument("--collection", required=True)
     export.add_argument("--limit-sessions", type=int, default=100)
+    export.add_argument("--redaction", choices=[e.value for e in RedactionLevel])
 
     plan = sub.add_parser(
         "plan-reply", help="Generate 2-3 Korean reply options from English intent"
@@ -157,15 +155,15 @@ def main(argv: list[str] | None = None) -> None:
     plan.add_argument("--collection", required=True)
     plan.add_argument("--deck", action="append", required=True)
     plan.add_argument("--intent-en", required=True)
-    plan.add_argument("--provider", choices=["fake", "openai"], default="fake")
+    plan.add_argument("--provider", choices=["fake", "openai"])
     plan.add_argument(
         "--provider-script",
         help="JSON file with scripted plan outputs (fake provider only)",
     )
     plan.add_argument("--api-key-file", default="gpt-api.txt")
-    plan.add_argument("--model", default="gpt-5-nano")
+    plan.add_argument("--model")
     plan.add_argument(
-        "--safe-mode", action=argparse.BooleanOptionalAction, default=True
+        "--safe-mode", action=argparse.BooleanOptionalAction, default=None
     )
 
     apply_sug = sub.add_parser(
@@ -226,9 +224,54 @@ def main(argv: list[str] | None = None) -> None:
         _cmd_settings(args)
 
 
+def _merged_settings(
+    col: Collection, args: argparse.Namespace, *, provider_default: str = "fake"
+) -> ConversationSettings:
+    base = load_conversation_settings(col)
+    provider = getattr(args, "provider", None) or base.provider or provider_default
+    model = getattr(args, "model", None) or base.model
+
+    safe_mode = getattr(args, "safe_mode", None)
+    if safe_mode is None:
+        safe_mode = base.safe_mode
+
+    redaction_raw = getattr(args, "redaction", None)
+    if redaction_raw is None:
+        redaction_level = base.redaction_level
+    else:
+        redaction_level = RedactionLevel(redaction_raw)
+
+    lexeme_field_index = getattr(args, "lexeme_field_index", None)
+    if lexeme_field_index is None:
+        lexeme_field_index = base.lexeme_field_index
+
+    gloss_field_index = getattr(args, "gloss_field_index", None)
+    if gloss_field_index is None:
+        gloss_field_index = base.gloss_field_index
+    if getattr(args, "no_gloss_field", False):
+        gloss_field_index = None
+
+    snapshot_max_items = getattr(args, "snapshot_max_items", None)
+    if snapshot_max_items is None:
+        snapshot_max_items = base.snapshot_max_items
+
+    return ConversationSettings(
+        provider=provider,
+        model=model,
+        safe_mode=bool(safe_mode),
+        redaction_level=redaction_level,
+        max_rewrites=base.max_rewrites,
+        lexeme_field_index=int(lexeme_field_index),
+        gloss_field_index=None if gloss_field_index is None else int(gloss_field_index),
+        snapshot_max_items=int(snapshot_max_items),
+    )
+
+
 def _cmd_run(args: argparse.Namespace) -> None:
     col = Collection(args.collection)
     try:
+        settings = _merged_settings(col, args)
+
         deck_ids: list[DeckId] = []
         for deck_name in args.deck:
             did = col.decks.id_for_name(deck_name)
@@ -239,11 +282,9 @@ def _cmd_run(args: argparse.Namespace) -> None:
         snapshot = build_deck_snapshot(
             col,
             deck_ids,
-            lexeme_field_index=int(args.lexeme_field_index),
-            gloss_field_index=None
-            if args.no_gloss_field
-            else int(args.gloss_field_index),
-            max_items=int(args.snapshot_max_items),
+            lexeme_field_index=settings.lexeme_field_index,
+            gloss_field_index=settings.gloss_field_index,
+            max_items=settings.snapshot_max_items,
         )
         planner = ConversationPlanner(snapshot)
         telemetry = ConversationTelemetryStore(col)
@@ -255,7 +296,7 @@ def _cmd_run(args: argparse.Namespace) -> None:
         mastery_cache = telemetry.load_mastery_cache(snapshot_item_ids)
 
         provider: ConversationProvider
-        if args.provider == "fake":
+        if settings.provider == "fake":
             scripted = []
             if args.provider_script:
                 scripted = json.loads(
@@ -265,24 +306,12 @@ def _cmd_run(args: argparse.Namespace) -> None:
                     raise SystemExit("--provider-script must be a JSON list")
             provider = FakeConversationProvider(scripted=scripted)
         else:
-            api_key = read_api_key_file(args.api_key_file)
+            api_key = resolve_openai_api_key(api_key_file=args.api_key_file)
             if not api_key:
                 raise SystemExit(
                     "OpenAI API key missing; set OPENAI_API_KEY or provide --api-key-file"
                 )
-            provider = OpenAIConversationProvider(api_key=api_key, model=args.model)
-
-        settings = ConversationSettings(
-            provider=args.provider,
-            model=args.model,
-            safe_mode=bool(args.safe_mode),
-            redaction_level=RedactionLevel(args.redaction),
-            lexeme_field_index=int(args.lexeme_field_index),
-            gloss_field_index=None
-            if args.no_gloss_field
-            else int(args.gloss_field_index),
-            snapshot_max_items=int(args.snapshot_max_items),
-        )
+            provider = OpenAIConversationProvider(api_key=api_key, model=settings.model)
         gateway = ConversationGateway(
             provider=provider, max_rewrites=settings.max_rewrites
         )
@@ -387,6 +416,8 @@ def _cmd_run(args: argparse.Namespace) -> None:
 def _cmd_snapshot(args: argparse.Namespace) -> None:
     col = Collection(args.collection)
     try:
+        settings = _merged_settings(col, args)
+
         deck_ids: list[DeckId] = []
         for deck_name in args.deck:
             did = col.decks.id_for_name(deck_name)
@@ -396,11 +427,9 @@ def _cmd_snapshot(args: argparse.Namespace) -> None:
         snapshot = build_deck_snapshot(
             col,
             deck_ids,
-            lexeme_field_index=int(args.lexeme_field_index),
-            gloss_field_index=None
-            if args.no_gloss_field
-            else int(args.gloss_field_index),
-            max_items=int(args.snapshot_max_items),
+            lexeme_field_index=settings.lexeme_field_index,
+            gloss_field_index=settings.gloss_field_index,
+            max_items=settings.snapshot_max_items,
         )
         print(
             orjson.dumps(
@@ -433,8 +462,14 @@ def _cmd_snapshot(args: argparse.Namespace) -> None:
 def _cmd_export(args: argparse.Namespace) -> None:
     col = Collection(args.collection)
     try:
+        settings = load_conversation_settings(col)
+        redaction_level = settings.redaction_level
+        if args.redaction is not None:
+            redaction_level = RedactionLevel(args.redaction)
         exported = export_conversation_telemetry(
-            col, limit_sessions=args.limit_sessions
+            col,
+            limit_sessions=args.limit_sessions,
+            redaction_level=redaction_level,
         )
         print(exported.to_json())
     finally:
@@ -444,6 +479,8 @@ def _cmd_export(args: argparse.Namespace) -> None:
 def _cmd_plan_reply(args: argparse.Namespace) -> None:
     col = Collection(args.collection)
     try:
+        settings = _merged_settings(col, args)
+
         deck_ids: list[DeckId] = []
         for deck_name in args.deck:
             did = col.decks.id_for_name(deck_name)
@@ -466,11 +503,11 @@ def _cmd_plan_reply(args: argparse.Namespace) -> None:
             provide_micro_feedback=instructions.provide_micro_feedback,
             provide_suggested_english_intent=instructions.provide_suggested_english_intent,
             max_corrections=instructions.max_corrections,
-            safe_mode=bool(args.safe_mode),
+            safe_mode=settings.safe_mode,
         )
 
         provider: object
-        if args.provider == "fake":
+        if settings.provider == "fake":
             scripted = []
             if args.provider_script:
                 scripted = json.loads(
@@ -480,12 +517,12 @@ def _cmd_plan_reply(args: argparse.Namespace) -> None:
                     raise SystemExit("--provider-script must be a JSON list")
             provider = FakePlanReplyProvider(scripted=scripted)
         else:
-            api_key = read_api_key_file(args.api_key_file)
+            api_key = resolve_openai_api_key(api_key_file=args.api_key_file)
             if not api_key:
                 raise SystemExit(
                     "OpenAI API key missing; set OPENAI_API_KEY or provide --api-key-file"
                 )
-            provider = OpenAIPlanReplyProvider(api_key=api_key, model=args.model)
+            provider = OpenAIPlanReplyProvider(api_key=api_key, model=settings.model)
 
         gateway = PlanReplyGateway(provider=provider)  # type: ignore[arg-type]
         req = PlanReplyRequest(

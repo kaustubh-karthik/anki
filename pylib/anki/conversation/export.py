@@ -9,6 +9,9 @@ from typing import Any
 
 from anki.collection import Collection
 
+from .redaction import redact_text
+from .settings import RedactionLevel
+
 
 @dataclass(frozen=True)
 class TelemetryExport:
@@ -24,8 +27,22 @@ class TelemetryExport:
 
 
 def export_conversation_telemetry(
-    col: Collection, *, limit_sessions: int = 100
+    col: Collection,
+    *,
+    limit_sessions: int = 100,
+    redaction_level: RedactionLevel = RedactionLevel.none,
 ) -> TelemetryExport:
+    def redact_json(value: Any) -> Any:
+        if redaction_level == RedactionLevel.none:
+            return value
+        if isinstance(value, str):
+            return redact_text(value, redaction_level).text
+        if isinstance(value, list):
+            return [redact_json(v) for v in value]
+        if isinstance(value, dict):
+            return {k: redact_json(v) for k, v in value.items()}
+        return value
+
     sessions_rows = col.db.all(
         "select id, deck_ids, started_ms, ended_ms, summary_json from elites_conversation_sessions order by id desc limit ?",
         limit_sessions,
@@ -36,6 +53,12 @@ def export_conversation_telemetry(
         if not isinstance(sid, int):
             continue
         session_ids.append(sid)
+        if redaction_level != RedactionLevel.none and isinstance(summary, str):
+            try:
+                summary_obj = json.loads(summary)
+            except Exception:
+                summary_obj = summary
+            summary = json.dumps(redact_json(summary_obj), ensure_ascii=False)
         sessions.append(
             {
                 "id": sid,
@@ -54,6 +77,12 @@ def export_conversation_telemetry(
             *session_ids,
         )
         for session_id, turn_index, event_type, ts_ms, payload_json in rows:
+            if redaction_level != RedactionLevel.none and isinstance(payload_json, str):
+                try:
+                    payload_obj = json.loads(payload_json)
+                except Exception:
+                    payload_obj = payload_json
+                payload_json = json.dumps(redact_json(payload_obj), ensure_ascii=False)
             events.append(
                 {
                     "session_id": session_id,
