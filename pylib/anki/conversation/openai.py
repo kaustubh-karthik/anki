@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from threading import Lock
 from typing import Any, Callable
@@ -12,11 +13,19 @@ import orjson
 
 from anki.httpclient import HttpClient
 
+logger = logging.getLogger(__name__)
+
 
 def _extract_text_fallback(data: dict[str, Any]) -> str:
     output = data.get("output")
     if not isinstance(output, list):
-        raise ValueError("unable to extract text from OpenAI response")
+        # Log what we actually got
+        logger.error(f"Expected 'output' to be a list, got: {type(output)}")
+        logger.error(f"Response structure: {json.dumps(data, indent=2)[:2000]}")
+        raise ValueError(
+            f"unable to extract text from OpenAI response: 'output' is {type(output)}, not list"
+        )
+
     for item in output:
         if not isinstance(item, dict):
             continue
@@ -37,19 +46,39 @@ def _extract_text_fallback(data: dict[str, Any]) -> str:
                 and text["value"]
             ):
                 return text["value"]
-    raise ValueError("unable to extract text from OpenAI response")
+
+    # If we get here, we couldn't find the text
+    logger.error(f"Could not find output_text in response structure")
+    logger.error(f"Full response: {json.dumps(data, indent=2)[:2000]}")
+    raise ValueError(
+        "unable to extract text from OpenAI response: no output_text found in structure"
+    )
 
 
 @dataclass
 class OpenAIResponsesJsonClient:
     api_key: str
     model: str
-    api_url: str = "https://api.openai.com/v1/responses"
+    api_url: str | None = None  # Auto-detect based on model
     http_client_factory: Callable[[], HttpClient] = HttpClient
-    timeout_s: float | tuple[float, float] = (10.0, 180.0)
+    timeout_s: float | tuple[float, float] = (5.0, 60.0)  # Reasonable timeout
     max_output_tokens: int = 256
     _client: HttpClient | None = field(default=None, init=False, repr=False)
     _lock: Lock = field(default_factory=Lock, init=False, repr=False)
+
+    def _get_api_url(self) -> str:
+        """Determine which endpoint to use based on model name."""
+        if self.api_url is not None:
+            return self.api_url
+        # Reasoning models use /v1/responses, standard models use /v1/chat/completions
+        reasoning_models = ["o1", "o3", "gpt-5"]
+        if any(self.model.startswith(prefix) for prefix in reasoning_models):
+            return "https://api.openai.com/v1/responses"
+        return "https://api.openai.com/v1/chat/completions"
+
+    def _is_reasoning_model(self) -> bool:
+        """Check if this is a reasoning model."""
+        return "v1/responses" in self._get_api_url()
 
     def close(self) -> None:
         with self._lock:
@@ -67,18 +96,42 @@ class OpenAIResponsesJsonClient:
             client = self._client
         client.timeout = self.timeout_s
 
-        payload: dict[str, Any] = {
-            "model": self.model,
-            "input": [
-                {"role": "system", "content": system_role},
-                {"role": "user", "content": json.dumps(user_json, ensure_ascii=False)},
-            ],
-            # Request JSON-only output; keep verbosity low to reduce latency.
-            "text": {"format": {"type": "json_object"}, "verbosity": "low"},
-            # Reduce the risk of spending the entire token budget on reasoning.
-            "reasoning": {"effort": "low"},
-            "max_output_tokens": self.max_output_tokens,
-        }
+        api_url = self._get_api_url()
+        is_reasoning = self._is_reasoning_model()
+
+        # Build payload based on endpoint type
+        if is_reasoning:
+            # /v1/responses format (for o1/o3/gpt-5 models)
+            payload: dict[str, Any] = {
+                "model": self.model,
+                "input": [
+                    {"role": "system", "content": system_role},
+                    {
+                        "role": "user",
+                        "content": json.dumps(user_json, ensure_ascii=False),
+                    },
+                ],
+                "text": {"format": {"type": "json_object"}, "verbosity": "low"},
+                "reasoning": {"effort": "low"},
+                "max_output_tokens": self.max_output_tokens,
+            }
+        else:
+            # /v1/chat/completions format (for gpt-4, gpt-3.5-turbo, etc.)
+            payload = {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": system_role},
+                    {
+                        "role": "user",
+                        "content": json.dumps(user_json, ensure_ascii=False),
+                    },
+                ],
+                "response_format": {"type": "json_object"},
+                "max_tokens": self.max_output_tokens,
+                "temperature": 0.7,
+                "stream": False,
+            }
+
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -86,7 +139,7 @@ class OpenAIResponsesJsonClient:
 
         def do_request(p: dict[str, Any]) -> dict[str, Any]:
             resp = client.post(
-                self.api_url, data=orjson.dumps(p), headers=headers, stream=False
+                api_url, data=orjson.dumps(p), headers=headers, stream=False
             )
             try:
                 resp.raise_for_status()
@@ -94,13 +147,20 @@ class OpenAIResponsesJsonClient:
             finally:
                 resp.close()
 
+        import time
+
+        start_time = time.time()
+
         data = do_request(payload)
+
+        elapsed = time.time() - start_time
+        logger.debug(f"OpenAI API request ({self.model}) took {elapsed:.2f}s")
+
         if data.get("error") is not None:
             raise ValueError(f"OpenAI error: {data['error']}")
 
-        # If the response is incomplete due to max_output_tokens (often because
-        # the model used the budget on reasoning), retry once with a larger budget.
-        if (
+        # Handle retry for reasoning models with incomplete responses
+        if is_reasoning and (
             data.get("status") == "incomplete"
             and isinstance(data.get("incomplete_details"), dict)
             and data["incomplete_details"].get("reason") == "max_output_tokens"
@@ -109,9 +169,31 @@ class OpenAIResponsesJsonClient:
             payload2["max_output_tokens"] = max(int(self.max_output_tokens), 256) * 4
             data = do_request(payload2)
 
-        text = data.get("output_text")
+        # Extract text based on endpoint format
+        if is_reasoning:
+            # /v1/responses format
+            text = data.get("output_text")
+            if not isinstance(text, str):
+                logger.debug(
+                    f"No output_text field, trying fallback. Response keys: {list(data.keys())}"
+                )
+                logger.debug(f"Full response: {json.dumps(data, indent=2)[:1000]}")
+                text = _extract_text_fallback(data)
+        else:
+            # /v1/chat/completions format
+            try:
+                text = data["choices"][0]["message"]["content"]
+            except (KeyError, IndexError, TypeError) as e:
+                logger.error(
+                    f"Failed to extract response. Data: {json.dumps(data, indent=2)[:500]}"
+                )
+                raise ValueError(
+                    f"Unable to extract text from OpenAI response: {e}"
+                ) from e
+
         if not isinstance(text, str):
-            text = _extract_text_fallback(data)
+            raise ValueError(f"Expected string content, got {type(text)}")
+
         parsed = json.loads(text)
         if not isinstance(parsed, dict):
             raise ValueError("OpenAI returned non-object JSON")

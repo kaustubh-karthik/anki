@@ -204,8 +204,8 @@ class FakePlanReplyProvider(PlanReplyProvider):
 @dataclass
 class OpenAIPlanReplyProvider(PlanReplyProvider):
     api_key: str
-    model: str = "gpt-5-nano"
-    timeout_s: float | tuple[float, float] = (10.0, 180.0)
+    model: str = "gpt-4o-mini"
+    timeout_s: float | tuple[float, float] = (5.0, 60.0)
     max_output_tokens: int = 256
     _client: OpenAIResponsesJsonClient = field(init=False, repr=False)
 

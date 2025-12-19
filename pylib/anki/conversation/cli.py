@@ -111,7 +111,7 @@ def main(argv: list[str] | None = None) -> None:
 
     smoke = sub.add_parser("openai-smoke", help="Minimal OpenAI connectivity test")
     smoke.add_argument("--api-key-file", default="gpt-api.txt")
-    smoke.add_argument("--model", default="gpt-5-nano")
+    smoke.add_argument("--model", default="gpt-4o-mini")
 
     run = sub.add_parser("run", help="Run a text-only conversation session")
     run.add_argument("--collection", required=True, help="Path to .anki2 file")
@@ -451,7 +451,7 @@ def _cmd_openai_smoke(args: argparse.Namespace) -> None:
         )
     model = args.model
     if not isinstance(model, str) or not model:
-        model = "gpt-5-nano"
+        model = "gpt-4o-mini"
 
     # Keep this intentionally tiny: it tests TLS/network/auth + JSON-mode parsing,
     # without depending on the Conversation schema/prompting.

@@ -18,7 +18,7 @@ class RedactionLevel(str, Enum):
 @dataclass(frozen=True)
 class ConversationSettings:
     provider: str = "openai"
-    model: str = "gpt-5-nano"
+    model: str = "gpt-4o-mini"  # Fast, cheap, widely available
     safe_mode: bool = True
     redaction_level: RedactionLevel = RedactionLevel.minimal
     max_rewrites: int = 0
@@ -55,7 +55,7 @@ def load_conversation_settings(col: Collection) -> ConversationSettings:
     if provider not in ("openai", "local", "fake"):
         provider = "openai"
     if not isinstance(model, str):
-        model = "gpt-5-nano"
+        model = "gpt-4o-mini"
     if not isinstance(safe_mode, bool):
         safe_mode = True
     if not isinstance(redaction_level_raw, str) or redaction_level_raw not in (
