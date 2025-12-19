@@ -180,23 +180,26 @@ class ConversationPlanner:
             if len(must_targets) >= must_target_count:
                 break
             must_targets.append(colloc)
-        allowed_support = tuple(
+        # For the AI: only include deck vocabulary (no BASE_ALLOWED_SUPPORT)
+        # The system prompt tells the AI it can use basic particles freely
+        allowed_support_for_ai = tuple(
             dict.fromkeys(
-                BASE_ALLOWED_SUPPORT
-                + tuple(lexemes[:allowed_support_count])
+                tuple(lexemes[:allowed_support_count])
                 + tuple(sf for t in must_targets for sf in t.surface_forms)
             )
         )
 
         constraints = LanguageConstraints(
             must_target=tuple(must_targets),
-            allowed_support=allowed_support,
+            allowed_support=allowed_support_for_ai,
             allowed_grammar=select_grammar_patterns(
                 must_targets=tuple(sf for t in must_targets for sf in t.surface_forms)
             ),
             forbidden=ForbiddenConstraints(
                 introduce_new_vocab=True, sentence_length_max=20
             ),
+            # Note: BASE_ALLOWED_SUPPORT is still used for validation in gateway.py
+            # but we don't pass it to the AI - the prompt tells it to use particles freely
         )
 
         instructions = GenerationInstructions(

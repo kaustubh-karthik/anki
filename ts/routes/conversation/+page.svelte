@@ -16,14 +16,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let selectedDecks: string[] = ["Korean"];
     let topicId = "room_objects";
     let message = "";
-    type Confidence = "confident" | "unsure" | "guessing" | null;
-    let confidence: Confidence = null;
     type AssistantResponse = NonNullable<
         Extract<ConversationTurnResponse, { ok: true }>["response"]
     >;
     type Turn = {
         user_text_ko: string;
-        confidence: Confidence;
         assistant: AssistantResponse;
     };
     let turns: Turn[] = [];
@@ -31,7 +28,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let showExplainByTurn: Record<number, boolean> = {};
     let showTranslateByTurn: Record<number, boolean> = {};
     let translationByTurn: Record<number, string> = {};
-    let lastGloss: string | null = null;
     let error: string | null = null;
     let intentEn = "";
     let replyOptions: string[] = [];
@@ -48,6 +44,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let telemetryJson = "";
     let inFlight = false;
     let lastJobDebug: string | null = null;
+    let tooltip: { text: string; gloss: string; x: number; y: number } | null = null;
+    let hoveredWordsThisTurn: Set<string> = new Set();
 
     function sleep(ms: number): Promise<void> {
         return new Promise((resolve) => setTimeout(resolve, ms));
@@ -137,6 +135,15 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 error = "Busy.";
                 return;
             }
+
+            // Track that user needed to translate - mark all words as unknown
+            const wordsInSentence = tokenizeForUi(textKo)
+                .filter((tok) => tok.kind === "word")
+                .map((tok) => tok.text);
+            if (wordsInSentence.length > 0) {
+                sendEvent({ type: "sentence_translated", tokens: wordsInSentence });
+            }
+
             inFlight = true;
             try {
                 const startResp: any = await bridgeCommandPromise(
@@ -159,30 +166,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 inFlight = false;
             }
         })();
-    }
-
-    function practiceTargets(index: number): void {
-        const turn = turns[index];
-        const targets = turn?.assistant?.targets_used ?? [];
-        for (const itemId of targets) {
-            if (itemId.startsWith("lexeme:")) {
-                sendEvent({
-                    type: "practice_again",
-                    token: itemId.slice("lexeme:".length),
-                });
-            }
-        }
-    }
-
-    function markConfusingMessage(index: number): void {
-        sendEvent({ type: "mark_confusing_message", turn_index: index + 1 });
-    }
-
-    function repairMove(move: string, phraseKo: string): void {
-        sendEvent({ type: "repair_move", move });
-        if (!message.trim()) {
-            message = phraseKo;
-        }
     }
 
     function start(): void {
@@ -241,13 +224,26 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 error = "Busy.";
                 return;
             }
+
+            // Track words from previous AI turns that the user understood (didn't hover)
+            if (turns.length > 0) {
+                const lastTurn = turns[turns.length - 1];
+                const allWords = tokenizeForUi(lastTurn.assistant.assistant_reply_ko)
+                    .filter((tok) => tok.kind === "word")
+                    .map((tok) => tok.text);
+                const knownWords = allWords.filter((w) => !hoveredWordsThisTurn.has(w));
+                if (knownWords.length > 0) {
+                    sendEvent({ type: "words_known", tokens: knownWords });
+                }
+            }
+            hoveredWordsThisTurn = new Set();
+
             message = "";
             inFlight = true;
             try {
                 const startResp: any = await bridgeCommandPromise(
                     buildConversationCommand("turn_async", {
                         text_ko: text,
-                        confidence,
                     }),
                 );
                 if (!startResp?.ok) {
@@ -265,7 +261,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     ...turns,
                     {
                         user_text_ko: text,
-                        confidence,
                         assistant: (result as any).response,
                     },
                 ];
@@ -275,17 +270,30 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         })();
     }
 
-    function gloss(lexeme: string): void {
-        if (!bridgeCommandsAvailable()) {
-            return;
+    function showWordTooltip(
+        word: string,
+        glosses: Record<string, string> | undefined,
+        event: MouseEvent,
+    ): void {
+        const gloss = glosses?.[word];
+        if (gloss) {
+            const rect = (event.target as HTMLElement).getBoundingClientRect();
+            tooltip = {
+                text: word,
+                gloss,
+                x: rect.left + window.scrollX,
+                y: rect.bottom + window.scrollY + 4,
+            };
+        } else {
+            tooltip = null;
         }
-        bridgeCommand(buildConversationCommand("gloss", { lexeme }), (resp: any) => {
-            if (resp?.found) {
-                lastGloss = `${resp.lexeme}: ${resp.gloss ?? ""}`.trim();
-            } else {
-                lastGloss = null;
-            }
-        });
+        // Track that the user hovered over this word (indicates they may not know it)
+        hoveredWordsThisTurn.add(word);
+        sendEvent({ type: "dont_know", token: word });
+    }
+
+    function hideTooltip(): void {
+        tooltip = null;
     }
 
     function refreshWrap(): void {
@@ -354,8 +362,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         message = textKo;
     }
 
+    let applySuggestionsResult: string | null = null;
     function applySuggestions(): void {
         error = null;
+        applySuggestionsResult = null;
         bridgeCommand(
             buildConversationCommand("apply_suggestions", { deck: applyDeck }),
             (resp: any) => {
@@ -363,7 +373,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     error = resp?.error ?? "apply suggestions failed.";
                     return;
                 }
-                lastGloss = `created notes: ${(resp.created_note_ids ?? []).join(", ")}`;
+                applySuggestionsResult = `created notes: ${(resp.created_note_ids ?? []).join(", ")}`;
             },
         );
     }
@@ -565,24 +575,13 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                     type="button"
                                     class="tok"
                                     aria-label={`token ${tok.text}`}
-                                    on:mouseenter={() => gloss(tok.text)}
-                                    on:click={() =>
-                                        sendEvent({
-                                            type: "dont_know",
-                                            token: tok.text,
-                                        })}
-                                    on:dblclick={() =>
-                                        sendEvent({
-                                            type: "practice_again",
-                                            token: tok.text,
-                                        })}
-                                    on:contextmenu={(e) => {
-                                        e.preventDefault();
-                                        sendEvent({
-                                            type: "mark_confusing",
-                                            token: tok.text,
-                                        });
-                                    }}
+                                    on:mouseenter={(e) =>
+                                        showWordTooltip(
+                                            tok.text,
+                                            turn.assistant.word_glosses,
+                                            e,
+                                        )}
+                                    on:mouseleave={hideTooltip}
                                 >
                                     {tok.text}
                                 </button>
@@ -615,12 +614,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                             toggleTranslate(idx, turn.assistant.assistant_reply_ko)}
                     >
                         Translate
-                    </button>
-                    <button type="button" on:click={() => practiceTargets(idx)}>
-                        Practice this
-                    </button>
-                    <button type="button" on:click={() => markConfusingMessage(idx)}>
-                        Mark confusing
                     </button>
                 </div>
 
@@ -674,12 +667,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     </div>
 
     <div class="row">
-        <select bind:value={confidence}>
-            <option value={null}>confidence: (none)</option>
-            <option value="confident">confident</option>
-            <option value="unsure">unsure</option>
-            <option value="guessing">guessing</option>
-        </select>
         <input
             placeholder="Type Korean…"
             bind:value={message}
@@ -692,30 +679,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         {/if}
     </div>
 
-    <div class="row">
-        <button
-            type="button"
-            on:click={() => repairMove("clarify_meaning", "무슨 뜻이에요?")}
-        >
-            Clarify meaning
-        </button>
-        <button
-            type="button"
-            on:click={() => repairMove("simplify", "좀 더 쉽게 말해 주세요.")}
-        >
-            Say it simpler
-        </button>
-        <button
-            type="button"
-            on:click={() => repairMove("confirm", "그러면 … 맞아요?")}
-        >
-            Confirm
-        </button>
-    </div>
-
-    {#if lastGloss}
-        <div class="gloss">{lastGloss}</div>
-    {/if}
     {#if error}
         <div class="error">{error}</div>
     {/if}
@@ -803,8 +766,18 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     </select>
                     <button on:click={applySuggestions}>Apply</button>
                 </div>
+                {#if applySuggestionsResult}
+                    <div class="gloss">{applySuggestionsResult}</div>
+                {/if}
             </div>
         {/if}
+    {/if}
+
+    {#if tooltip}
+        <div class="tooltip" style="left: {tooltip.x}px; top: {tooltip.y}px;">
+            <strong>{tooltip.text}</strong>
+            : {tooltip.gloss}
+        </div>
     {/if}
 </div>
 
@@ -856,5 +829,17 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     .error {
         margin-top: 8px;
         color: var(--accent-danger, #b00020);
+    }
+    .tooltip {
+        position: absolute;
+        background: var(--canvas, #fff);
+        border: 1px solid var(--border, #888);
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 0.85em;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        z-index: 1000;
+        max-width: 300px;
+        pointer-events: none;
     }
 </style>

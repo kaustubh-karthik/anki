@@ -119,6 +119,34 @@ def record_event_from_payload(
             )
         return
 
+    if etype == "words_known":
+        tokens = payload.get("tokens", [])
+        if isinstance(tokens, list):
+            for token in tokens:
+                if isinstance(token, str) and token:
+                    telemetry.bump_item_cached(
+                        mastery_cache,
+                        item_id=f"lexeme:{token}",
+                        kind="lexeme",
+                        value=token,
+                        deltas={"user_understood": 1},
+                    )
+        return
+
+    if etype == "sentence_translated":
+        tokens = payload.get("tokens", [])
+        if isinstance(tokens, list):
+            for token in tokens:
+                if isinstance(token, str) and token:
+                    telemetry.bump_item_cached(
+                        mastery_cache,
+                        item_id=f"lexeme:{token}",
+                        kind="lexeme",
+                        value=token,
+                        deltas={"dont_know": 1},
+                    )
+        return
+
 
 def record_turn_event(
     *,

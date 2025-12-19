@@ -11,6 +11,7 @@ export type ConversationTurnResponse =
             suggested_user_intent_en?: string | null;
             targets_used?: string[];
             unexpected_tokens?: string[];
+            word_glosses?: Record<string, string>;
         };
     }
     | { ok: false; error: string };

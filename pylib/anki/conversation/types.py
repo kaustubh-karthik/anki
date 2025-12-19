@@ -134,6 +134,7 @@ class ConversationResponse:
     suggested_user_intent_en: str | None = None
     targets_used: tuple[str, ...] = ()
     unexpected_tokens: tuple[str, ...] = ()
+    word_glosses: tuple[tuple[str, str], ...] = ()  # (word, english_gloss) pairs
 
     @classmethod
     def from_json_dict(cls, data: JsonDict) -> "ConversationResponse":
@@ -178,6 +179,20 @@ class ConversationResponse:
         ):
             raise ValueError("unexpected_tokens must be a list of strings")
 
+        # word_glosses can be dict (from LLM) or list of pairs
+        raw_glosses = data.get("word_glosses", {})
+        word_glosses: list[tuple[str, str]] = []
+        if isinstance(raw_glosses, dict):
+            for word, gloss in raw_glosses.items():
+                if isinstance(word, str) and isinstance(gloss, str):
+                    word_glosses.append((word, gloss))
+        elif isinstance(raw_glosses, list):
+            for item in raw_glosses:
+                if isinstance(item, (list, tuple)) and len(item) == 2:
+                    w, g = item
+                    if isinstance(w, str) and isinstance(g, str):
+                        word_glosses.append((w, g))
+
         return cls(
             assistant_reply_ko=assistant_reply_ko,
             follow_up_question_ko=follow_up_question_ko,
@@ -185,6 +200,7 @@ class ConversationResponse:
             suggested_user_intent_en=suggested_user_intent_en,
             targets_used=tuple(targets_used),
             unexpected_tokens=tuple(unexpected_tokens),
+            word_glosses=tuple(word_glosses),
         )
 
     def to_json_dict(self) -> JsonDict:
@@ -195,6 +211,7 @@ class ConversationResponse:
             "suggested_user_intent_en": self.suggested_user_intent_en,
             "targets_used": list(self.targets_used),
             "unexpected_tokens": list(self.unexpected_tokens),
+            "word_glosses": {word: gloss for word, gloss in self.word_glosses},
         }
 
 
