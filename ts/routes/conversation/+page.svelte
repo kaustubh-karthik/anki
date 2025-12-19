@@ -24,6 +24,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         assistant: AssistantResponse;
     };
     let turns: Turn[] = [];
+    let resolvedGlossesByTurn: Record<number, Record<string, string>> = {};
     let showHintByTurn: Record<number, boolean> = {};
     let showExplainByTurn: Record<number, boolean> = {};
     let showTranslateByTurn: Record<number, boolean> = {};
@@ -44,8 +45,81 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let telemetryJson = "";
     let inFlight = false;
     let lastJobDebug: string | null = null;
-    let tooltip: { text: string; gloss: string; x: number; y: number } | null = null;
+    let tooltip:
+        | {
+              text: string;
+              gloss: string;
+              x: number;
+              y: number;
+              anchorX: number;
+              arrowX: number;
+              placement: "top" | "bottom";
+          }
+        | null = null;
+    let tooltipEl: HTMLDivElement | null = null;
     let hoveredWordsThisTurn: Set<string> = new Set();
+
+    // Must be kept in sync with pylib/anki/conversation/validation.py
+    const JOSA_SUFFIXES = [
+        "하고",
+        "에서",
+        "으로",
+        "근데",
+        "그런데",
+        "뭐예요",
+        "되요",
+        "돼요",
+        "할까요",
+        "해주세요",
+        "싫어요",
+        "좋아요",
+        "아니에요",
+        "맞아요",
+        "아니요",
+        "그리고",
+        "그래서",
+        "있어요",
+        "없어요",
+        "싶어요",
+        "했어요",
+        "뭐가",
+        "어디예요",
+        "거기",
+        "여기",
+        "저기",
+        "오늘",
+        "내일",
+        "지금",
+        "있어",
+        "없어",
+        "뭐",
+        "어디",
+        "안",
+        "못",
+        "좀",
+        "더",
+        "주세요",
+        "해요",
+        "해",
+        "돼",
+        "맞아",
+        // Particles (shortest last so we prefer longer matches first)
+        "에서",
+        "으로",
+        "이",
+        "가",
+        "은",
+        "는",
+        "을",
+        "를",
+        "에",
+        "로",
+        "와",
+        "과",
+        "랑",
+        "도",
+        "만",
+    ].sort((a, b) => b.length - a.length);
 
     function sleep(ms: number): Promise<void> {
         return new Promise((resolve) => setTimeout(resolve, ms));
@@ -112,6 +186,83 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             return;
         }
         bridgeCommand(buildConversationCommand("event", payload));
+    }
+
+    function glossFromMap(
+        token: string,
+        glosses: Record<string, string> | undefined,
+    ): string | null {
+        if (!glosses) {
+            return null;
+        }
+        const direct = glosses[token];
+        if (direct) {
+            return direct;
+        }
+        for (const suffix of JOSA_SUFFIXES) {
+            if (token.endsWith(suffix) && token.length > suffix.length) {
+                const stem = token.slice(0, -suffix.length);
+                const stemGloss = glosses[stem];
+                if (stemGloss) {
+                    return stemGloss;
+                }
+            }
+        }
+        return null;
+    }
+
+    async function lookupGlossFromBackend(token: string): Promise<string | null> {
+        if (!bridgeCommandsAvailable()) {
+            return null;
+        }
+        try {
+            const resp: any = await bridgeCommandPromise(
+                buildConversationCommand("gloss", { lexeme: token }),
+            );
+            if (resp?.found && typeof resp.gloss === "string" && resp.gloss.trim()) {
+                return resp.gloss.trim();
+            }
+        } catch {
+            // ignore lookup failures
+        }
+        return null;
+    }
+
+    async function prefetchTurnGlosses(turnIndex: number, turn: Turn): Promise<void> {
+        const base: Record<string, string> = {
+            ...(turn.assistant.word_glosses ?? {}),
+        };
+
+        const tokens = [
+            ...tokenizeForUi(turn.assistant.assistant_reply_ko),
+            ...tokenizeForUi(turn.assistant.follow_up_question_ko),
+        ]
+            .filter((t) => t.kind === "word")
+            .map((t) => t.text);
+
+        for (const token of tokens) {
+            if (base[token]) {
+                continue;
+            }
+            for (const suffix of JOSA_SUFFIXES) {
+                if (token.endsWith(suffix) && token.length > suffix.length) {
+                    const stem = token.slice(0, -suffix.length);
+                    if (base[stem]) {
+                        base[token] = base[stem];
+                        break;
+                    }
+                }
+            }
+            if (base[token]) {
+                continue;
+            }
+            const backendGloss = await lookupGlossFromBackend(token);
+            if (backendGloss) {
+                base[token] = backendGloss;
+            }
+        }
+
+        resolvedGlossesByTurn = { ...resolvedGlossesByTurn, [turnIndex]: base };
     }
 
     function toggleByIndex(
@@ -264,6 +415,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                         assistant: (result as any).response,
                     },
                 ];
+                void prefetchTurnGlosses(turns.length - 1, turns[turns.length - 1]);
             } finally {
                 inFlight = false;
             }
@@ -273,17 +425,46 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     function showWordTooltip(
         word: string,
         glosses: Record<string, string> | undefined,
-        event: MouseEvent,
+        el: HTMLElement,
     ): void {
-        const gloss = glosses?.[word];
+        const gloss = glossFromMap(word, glosses);
         if (gloss) {
-            const rect = (event.target as HTMLElement).getBoundingClientRect();
+            const rect = el.getBoundingClientRect();
+            const anchorX = rect.left + rect.width / 2;
+            const preferTop = rect.top >= 44;
+            const placement: "top" | "bottom" = preferTop ? "top" : "bottom";
+            const y = preferTop ? rect.top - 10 : rect.bottom + 10;
+
             tooltip = {
                 text: word,
                 gloss,
-                x: rect.left + window.scrollX,
-                y: rect.bottom + window.scrollY + 4,
+                x: anchorX,
+                y,
+                anchorX,
+                arrowX: 0,
+                placement,
             };
+
+            // Clamp to viewport and position the arrow precisely over the word.
+            requestAnimationFrame(() => {
+                if (!tooltip || !tooltipEl) {
+                    return;
+                }
+                const box = tooltipEl.getBoundingClientRect();
+                const pad = 8;
+                let dx = 0;
+                if (box.left < pad) {
+                    dx = pad - box.left;
+                } else if (box.right > window.innerWidth - pad) {
+                    dx = window.innerWidth - pad - box.right;
+                }
+                const newLeft = box.left + dx;
+                const arrowX = Math.max(
+                    12,
+                    Math.min(tooltip.anchorX - newLeft, box.width - 12),
+                );
+                tooltip = { ...tooltip, x: tooltip.x + dx, arrowX };
+            });
         } else {
             tooltip = null;
         }
@@ -563,12 +744,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     {/if}
 
     <div class="chat">
-        {#each turns as turn, idx}
+    {#each turns as turn, idx}
             <div class="msg user">{turn.user_text_ko}</div>
 
             <div class="msg assistant">
                 <div class="assistantText">
-                    <div>
+                    <div class="assistantLine">
                         {#each tokenizeForUi(turn.assistant.assistant_reply_ko) as tok}
                             {#if tok.kind === "word"}
                                 <button
@@ -578,8 +759,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                     on:mouseenter={(e) =>
                                         showWordTooltip(
                                             tok.text,
-                                            turn.assistant.word_glosses,
-                                            e,
+                                            resolvedGlossesByTurn[idx] ??
+                                                turn.assistant.word_glosses,
+                                            e.currentTarget as HTMLElement,
                                         )}
                                     on:mouseleave={hideTooltip}
                                 >
@@ -590,7 +772,29 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                             {/if}
                         {/each}
                     </div>
-                    <div>{turn.assistant.follow_up_question_ko}</div>
+                    <div class="assistantLine">
+                        {#each tokenizeForUi(turn.assistant.follow_up_question_ko) as tok}
+                            {#if tok.kind === "word"}
+                                <button
+                                    type="button"
+                                    class="tok"
+                                    aria-label={`token ${tok.text}`}
+                                    on:mouseenter={(e) =>
+                                        showWordTooltip(
+                                            tok.text,
+                                            resolvedGlossesByTurn[idx] ??
+                                                turn.assistant.word_glosses,
+                                            e.currentTarget as HTMLElement,
+                                        )}
+                                    on:mouseleave={hideTooltip}
+                                >
+                                    {tok.text}
+                                </button>
+                            {:else}
+                                <span>{tok.text}</span>
+                            {/if}
+                        {/each}
+                    </div>
                 </div>
 
                 <div class="row">
@@ -774,9 +978,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     {/if}
 
     {#if tooltip}
-        <div class="tooltip" style="left: {tooltip.x}px; top: {tooltip.y}px;">
-            <strong>{tooltip.text}</strong>
-            : {tooltip.gloss}
+        <div
+            bind:this={tooltipEl}
+            class="wordTooltip {tooltip.placement}"
+            style="left: {tooltip.x}px; top: {tooltip.y}px; --arrow-left: {tooltip.arrowX}px;"
+        >
+            <span class="tooltipGloss">{tooltip.gloss}</span>
         </div>
     {/if}
 </div>
@@ -821,6 +1028,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         text-decoration: underline;
         text-underline-offset: 2px;
     }
+    .assistantLine {
+        line-height: 1.7;
+    }
     .gloss {
         margin-top: 8px;
         color: var(--fg-subtle, var(--fg, #111));
@@ -830,16 +1040,58 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         margin-top: 8px;
         color: var(--accent-danger, #b00020);
     }
-    .tooltip {
-        position: absolute;
-        background: var(--canvas, #fff);
-        border: 1px solid var(--border, #888);
+    .wordTooltip {
+        position: fixed;
+        z-index: 10000;
+        max-width: min(260px, calc(100vw - 16px));
         padding: 4px 8px;
-        border-radius: 4px;
-        font-size: 0.85em;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-        z-index: 1000;
-        max-width: 300px;
+        border-radius: 10px;
+        background: var(--canvas, #fff);
+        color: var(--fg, #111);
+        border: 1px solid var(--border, #888);
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
         pointer-events: none;
+        white-space: nowrap;
+        font-size: 12px;
+        opacity: 1;
+        display: block;
+    }
+    .wordTooltip.top {
+        transform: translate(-50%, -100%);
+    }
+    .wordTooltip.bottom {
+        transform: translate(-50%, 0%);
+    }
+    .tooltipGloss {
+        opacity: 0.95;
+    }
+    .wordTooltip::before,
+    .wordTooltip::after {
+        content: "";
+        position: absolute;
+        left: var(--arrow-left, 50%);
+        transform: translateX(-50%);
+        width: 0;
+        height: 0;
+        border: 7px solid transparent;
+    }
+    .wordTooltip::after {
+        border-width: 6px;
+    }
+    .wordTooltip.top::before {
+        bottom: -14px;
+        border-top-color: var(--border, #888);
+    }
+    .wordTooltip.top::after {
+        bottom: -12px;
+        border-top-color: var(--canvas, #fff);
+    }
+    .wordTooltip.bottom::before {
+        top: -14px;
+        border-bottom-color: var(--border, #888);
+    }
+    .wordTooltip.bottom::after {
+        top: -12px;
+        border-bottom-color: var(--canvas, #fff);
     }
 </style>

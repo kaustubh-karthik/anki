@@ -274,6 +274,7 @@ def test_conversation_session_controller_runs_without_ui() -> None:
                 "suggested_user_intent_en": None,
                 "targets_used": ["lexeme:의자"],
                 "unexpected_tokens": [],
+                "word_glosses": {"의자": "chair", "있어요": "there is", "뭐예요": "what is it"},
             }
 
     col = getEmptyCol()
@@ -569,6 +570,7 @@ class _ScriptedProvider(ConversationProvider):
                 "suggested_user_intent_en": None,
                 "targets_used": [],
                 "unexpected_tokens": [],
+                "word_glosses": {"고양이": "cat", "있어요": "there is", "뭐가": "what"},
             }
         return {
             "assistant_reply_ko": "의자 있어요.",
@@ -577,6 +579,7 @@ class _ScriptedProvider(ConversationProvider):
             "suggested_user_intent_en": None,
             "targets_used": [],
             "unexpected_tokens": [],
+            "word_glosses": {"의자": "chair", "있어요": "there is", "뭐가": "what"},
         }
 
 
@@ -609,6 +612,39 @@ def test_gateway_rewrites_on_unexpected_tokens() -> None:
     assert resp.unexpected_tokens == ()
 
 
+def test_gateway_preserves_word_glosses_on_unexpected_tokens_fallback() -> None:
+    @dataclass
+    class _UnexpectedTokenProvider(ConversationProvider):
+        def generate(self, *, request: ConversationRequest) -> dict:
+            return {
+                "assistant_reply_ko": "고양이 있어요.",
+                "follow_up_question_ko": "뭐예요?",
+                "micro_feedback": {"type": "none", "content_ko": "", "content_en": ""},
+                "suggested_user_intent_en": None,
+                "targets_used": [],
+                "unexpected_tokens": [],
+                "word_glosses": {"고양이": "cat", "있어요": "there is", "뭐예요": "what is it"},
+            }
+
+    provider = _UnexpectedTokenProvider()
+    gateway = ConversationGateway(provider=provider, max_rewrites=0)
+    request = ConversationRequest(
+        system_role="Return JSON only.",
+        conversation_state=ConversationState(summary="x"),
+        user_input=UserInput(text_ko="응"),
+        language_constraints=LanguageConstraints(
+            must_target=(),
+            allowed_support=("있어요", "뭐예요"),
+            allowed_grammar=(),
+        ),
+        generation_instructions=GenerationInstructions(safe_mode=True),
+    )
+
+    resp = gateway.run_turn(request=request)
+    assert resp.unexpected_tokens == ("고양이",)
+    assert dict(resp.word_glosses).get("고양이") == "cat"
+
+
 @dataclass
 class _LongReplyProvider(ConversationProvider):
     def generate(self, *, request: ConversationRequest) -> dict:
@@ -620,6 +656,7 @@ class _LongReplyProvider(ConversationProvider):
             "suggested_user_intent_en": None,
             "targets_used": [],
             "unexpected_tokens": [],
+            "word_glosses": {"의자": "chair", "뭐예요": "what is it"},
         }
 
 

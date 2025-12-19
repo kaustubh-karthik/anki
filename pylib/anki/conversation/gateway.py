@@ -74,6 +74,7 @@ class ConversationGateway:
                             suggested_user_intent_en=response.suggested_user_intent_en,
                             targets_used=response.targets_used,
                             unexpected_tokens=validation.unexpected_tokens,
+                            word_glosses=response.word_glosses,
                         )
                     request = _rewrite_request(
                         request,

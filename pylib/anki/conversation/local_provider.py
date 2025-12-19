@@ -58,6 +58,17 @@ class LocalConversationProvider(ConversationProvider):
             if all(token in used_tokens for token in mt.surface_forms):
                 targets_used.append(str(mt.id))
 
+        # Provide deterministic placeholder glosses for supported vocab so that
+        # the UI can still show something in offline mode.
+        # (Online providers are expected to return real English glosses.)
+        required_stems = set(request.language_constraints.allowed_support)
+        for mt in request.language_constraints.must_target:
+            required_stems.update(mt.surface_forms)
+        word_glosses: dict[str, str] = {}
+        for token in used_tokens:
+            if token in required_stems:
+                word_glosses[token] = "(gloss unavailable offline)"
+
         return {
             "assistant_reply_ko": assistant_reply_ko,
             "follow_up_question_ko": follow_up_question_ko,
@@ -65,4 +76,5 @@ class LocalConversationProvider(ConversationProvider):
             "suggested_user_intent_en": None,
             "targets_used": targets_used,
             "unexpected_tokens": [],
+            "word_glosses": word_glosses,
         }

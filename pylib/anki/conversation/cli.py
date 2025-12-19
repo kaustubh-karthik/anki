@@ -50,6 +50,7 @@ from .types import (
     LanguageConstraints,
     UserInput,
 )
+from .validation import tokenize_for_validation
 from .wrap import compute_session_wrap
 
 
@@ -61,6 +62,27 @@ class FakeConversationProvider(ConversationProvider):
         self._i = 0
 
     def generate(self, *, request: ConversationRequest) -> dict[str, Any]:
+        def with_placeholder_glosses(item: dict[str, Any]) -> dict[str, Any]:
+            if isinstance(item.get("word_glosses"), dict):
+                return item
+            assistant_reply_ko = item.get("assistant_reply_ko", "")
+            follow_up_question_ko = item.get("follow_up_question_ko", "")
+            if not isinstance(assistant_reply_ko, str) or not isinstance(
+                follow_up_question_ko, str
+            ):
+                return item
+            allowed = set(request.language_constraints.allowed_support)
+            for mt in request.language_constraints.must_target:
+                allowed.update(mt.surface_forms)
+            tokens = set(
+                tokenize_for_validation(assistant_reply_ko)
+                + tokenize_for_validation(follow_up_question_ko)
+            )
+            glosses = {t: "(gloss unavailable offline)" for t in tokens if t in allowed}
+            out = dict(item)
+            out["word_glosses"] = glosses
+            return out
+
         if self._i >= len(self._scripted):
             return {
                 "assistant_reply_ko": "네, 알겠어요.",
@@ -69,9 +91,12 @@ class FakeConversationProvider(ConversationProvider):
                 "suggested_user_intent_en": None,
                 "targets_used": [],
                 "unexpected_tokens": [],
+                "word_glosses": {},
             }
         item = self._scripted[self._i]
         self._i += 1
+        if isinstance(item, dict):
+            return with_placeholder_glosses(item)
         return item
 
 
