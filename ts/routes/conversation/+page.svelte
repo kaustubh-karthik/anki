@@ -47,7 +47,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let lastJobDebug: string | null = null;
     let tooltip:
         | {
-              text: string;
+              token: string;
               gloss: string;
               x: number;
               y: number;
@@ -57,55 +57,15 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
           }
         | null = null;
     let tooltipEl: HTMLDivElement | null = null;
+    let activeTooltipToken: string | null = null;
     let hoveredWordsThisTurn: Set<string> = new Set();
 
-    // Must be kept in sync with pylib/anki/conversation/validation.py
+    // Korean particles ("josa") that frequently attach to nouns, e.g. "날씨가".
+    // Keep in sync with pylib/anki/conversation/validation.py:_JOSA_SUFFIXES.
     const JOSA_SUFFIXES = [
+        "에서",
+        "으로",
         "하고",
-        "에서",
-        "으로",
-        "근데",
-        "그런데",
-        "뭐예요",
-        "되요",
-        "돼요",
-        "할까요",
-        "해주세요",
-        "싫어요",
-        "좋아요",
-        "아니에요",
-        "맞아요",
-        "아니요",
-        "그리고",
-        "그래서",
-        "있어요",
-        "없어요",
-        "싶어요",
-        "했어요",
-        "뭐가",
-        "어디예요",
-        "거기",
-        "여기",
-        "저기",
-        "오늘",
-        "내일",
-        "지금",
-        "있어",
-        "없어",
-        "뭐",
-        "어디",
-        "안",
-        "못",
-        "좀",
-        "더",
-        "주세요",
-        "해요",
-        "해",
-        "돼",
-        "맞아",
-        // Particles (shortest last so we prefer longer matches first)
-        "에서",
-        "으로",
         "이",
         "가",
         "은",
@@ -120,6 +80,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         "도",
         "만",
     ].sort((a, b) => b.length - a.length);
+
+    const glossCache = new Map<string, string | null>();
 
     function sleep(ms: number): Promise<void> {
         return new Promise((resolve) => setTimeout(resolve, ms));
@@ -211,6 +173,15 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         return null;
     }
 
+    function stemByStrippingJosa(token: string): string | null {
+        for (const suffix of JOSA_SUFFIXES) {
+            if (token.endsWith(suffix) && token.length > suffix.length) {
+                return token.slice(0, -suffix.length);
+            }
+        }
+        return null;
+    }
+
     async function lookupGlossFromBackend(token: string): Promise<string | null> {
         if (!bridgeCommandsAvailable()) {
             return null;
@@ -226,6 +197,61 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             // ignore lookup failures
         }
         return null;
+    }
+
+    async function lookupGlossCached(token: string): Promise<string | null> {
+        const normalized = token.trim();
+        if (!normalized || normalized.length > 50) {
+            return null;
+        }
+        if (glossCache.has(normalized)) {
+            return glossCache.get(normalized) ?? null;
+        }
+        const gloss = await lookupGlossFromBackend(normalized);
+        glossCache.set(normalized, gloss);
+        return gloss;
+    }
+
+    async function resolveGloss(
+        token: string,
+        glosses: Record<string, string> | undefined,
+    ): Promise<string | null> {
+        const fromPrompt = glossFromMap(token, glosses);
+        if (fromPrompt) {
+            return fromPrompt;
+        }
+        const stem = stemByStrippingJosa(token);
+        if (stem) {
+            const stemFromPrompt = glossFromMap(stem, glosses);
+            if (stemFromPrompt) {
+                return stemFromPrompt;
+            }
+        }
+        const fromDb = await lookupGlossCached(token);
+        if (fromDb) {
+            return fromDb;
+        }
+        if (stem) {
+            return await lookupGlossCached(stem);
+        }
+        return null;
+    }
+
+    async function mapWithConcurrency<T, U>(
+        items: readonly T[],
+        limit: number,
+        fn: (item: T) => Promise<U>,
+    ): Promise<U[]> {
+        const out: U[] = new Array(items.length) as U[];
+        let i = 0;
+        const workers = Array.from({ length: Math.max(1, limit) }, async () => {
+            while (i < items.length) {
+                const idx = i++;
+                out[idx] = await fn(items[idx]);
+            }
+        });
+        await Promise.all(workers);
+        return out;
     }
 
     async function prefetchTurnGlosses(turnIndex: number, turn: Turn): Promise<void> {
@@ -244,21 +270,22 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             if (base[token]) {
                 continue;
             }
-            for (const suffix of JOSA_SUFFIXES) {
-                if (token.endsWith(suffix) && token.length > suffix.length) {
-                    const stem = token.slice(0, -suffix.length);
-                    if (base[stem]) {
-                        base[token] = base[stem];
-                        break;
-                    }
+            const stem = stemByStrippingJosa(token);
+            if (stem && base[stem]) {
+                base[token] = base[stem];
+            }
+        }
+
+        const missing = tokens.filter((t) => !base[t]);
+        if (missing.length) {
+            const resolved = await mapWithConcurrency(missing, 4, async (token) => {
+                const gloss = await resolveGloss(token, base);
+                return { token, gloss };
+            });
+            for (const { token, gloss } of resolved) {
+                if (gloss) {
+                    base[token] = gloss;
                 }
-            }
-            if (base[token]) {
-                continue;
-            }
-            const backendGloss = await lookupGlossFromBackend(token);
-            if (backendGloss) {
-                base[token] = backendGloss;
             }
         }
 
@@ -349,6 +376,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 }
                 started = true;
                 turns = [];
+                resolvedGlossesByTurn = {};
                 showHintByTurn = {};
                 showExplainByTurn = {};
                 showTranslateByTurn = {};
@@ -427,6 +455,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         glosses: Record<string, string> | undefined,
         el: HTMLElement,
     ): void {
+        activeTooltipToken = word;
         const gloss = glossFromMap(word, glosses);
         if (gloss) {
             const rect = el.getBoundingClientRect();
@@ -436,7 +465,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             const y = preferTop ? rect.top - 10 : rect.bottom + 10;
 
             tooltip = {
-                text: word,
+                token: word,
                 gloss,
                 x: anchorX,
                 y,
@@ -447,7 +476,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
             // Clamp to viewport and position the arrow precisely over the word.
             requestAnimationFrame(() => {
-                if (!tooltip || !tooltipEl) {
+                if (!tooltip || !tooltipEl || tooltip.token !== word) {
                     return;
                 }
                 const box = tooltipEl.getBoundingClientRect();
@@ -466,7 +495,31 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 tooltip = { ...tooltip, x: tooltip.x + dx, arrowX };
             });
         } else {
-            tooltip = null;
+            // Show a bubble immediately (so hover always does something), then fill.
+            const rect = el.getBoundingClientRect();
+            const anchorX = rect.left + rect.width / 2;
+            const preferTop = rect.top >= 44;
+            const placement: "top" | "bottom" = preferTop ? "top" : "bottom";
+            const y = preferTop ? rect.top - 10 : rect.bottom + 10;
+            tooltip = {
+                token: word,
+                gloss: "…",
+                x: anchorX,
+                y,
+                anchorX,
+                arrowX: 0,
+                placement,
+            };
+            void (async () => {
+                const resolved = await resolveGloss(word, glosses);
+                if (!resolved) {
+                    return;
+                }
+                if (!tooltip || activeTooltipToken !== word || tooltip.token !== word) {
+                    return;
+                }
+                tooltip = { ...tooltip, gloss: resolved };
+            })();
         }
         // Track that the user hovered over this word (indicates they may not know it)
         hoveredWordsThisTurn.add(word);
@@ -474,6 +527,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     }
 
     function hideTooltip(): void {
+        activeTooltipToken = null;
         tooltip = null;
     }
 
@@ -500,6 +554,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             }
             lastWrap = resp.wrap ?? null;
             started = false;
+            resolvedGlossesByTurn = {};
+            tooltip = null;
         });
     }
 
