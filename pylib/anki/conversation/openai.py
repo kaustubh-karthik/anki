@@ -14,16 +14,29 @@ from anki.httpclient import HttpClient
 
 
 def _extract_text_fallback(data: dict[str, Any]) -> str:
-    try:
-        output = data["output"]
-        for item in output:
-            for content in item.get("content", []):
-                if content.get("type") == "output_text" and isinstance(
-                    content.get("text"), str
-                ):
-                    return content["text"]
-    except Exception:
-        pass
+    output = data.get("output")
+    if not isinstance(output, list):
+        raise ValueError("unable to extract text from OpenAI response")
+    for item in output:
+        if not isinstance(item, dict):
+            continue
+        contents = item.get("content", [])
+        if not isinstance(contents, list):
+            continue
+        for content in contents:
+            if not isinstance(content, dict):
+                continue
+            if content.get("type") != "output_text":
+                continue
+            text = content.get("text")
+            if isinstance(text, str) and text:
+                return text
+            if (
+                isinstance(text, dict)
+                and isinstance(text.get("value"), str)
+                and text["value"]
+            ):
+                return text["value"]
     raise ValueError("unable to extract text from OpenAI response")
 
 
@@ -54,22 +67,42 @@ class OpenAIResponsesJsonClient:
             client = self._client
         client.timeout = self.timeout_s
 
-        payload = {
+        payload: dict[str, Any] = {
             "model": self.model,
             "input": [
                 {"role": "system", "content": system_role},
                 {"role": "user", "content": json.dumps(user_json, ensure_ascii=False)},
             ],
-            "text": {"format": {"type": "json_object"}},
+            # Request JSON-only output; keep verbosity low to reduce latency.
+            "text": {"format": {"type": "json_object"}, "verbosity": "low"},
+            # Reduce the risk of spending the entire token budget on reasoning.
+            "reasoning": {"effort": "low"},
             "max_output_tokens": self.max_output_tokens,
         }
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-        resp = client.post(self.api_url, data=orjson.dumps(payload), headers=headers)
-        resp.raise_for_status()
-        data = resp.json()
+
+        def do_request(p: dict[str, Any]) -> dict[str, Any]:
+            resp = client.post(self.api_url, data=orjson.dumps(p), headers=headers)
+            resp.raise_for_status()
+            return resp.json()
+
+        data = do_request(payload)
+        if data.get("error") is not None:
+            raise ValueError(f"OpenAI error: {data['error']}")
+
+        # If the response is incomplete due to max_output_tokens (often because
+        # the model used the budget on reasoning), retry once with a larger budget.
+        if (
+            data.get("status") == "incomplete"
+            and isinstance(data.get("incomplete_details"), dict)
+            and data["incomplete_details"].get("reason") == "max_output_tokens"
+        ):
+            payload2 = dict(payload)
+            payload2["max_output_tokens"] = max(int(self.max_output_tokens), 256) * 4
+            data = do_request(payload2)
 
         text = data.get("output_text")
         if not isinstance(text, str):
