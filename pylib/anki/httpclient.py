@@ -46,13 +46,20 @@ class HttpClient(DeprecatedNamesMixin):
     def __del__(self) -> None:
         self.close()
 
-    def post(self, url: str, data: bytes, headers: dict[str, str] | None) -> Response:
+    def post(
+        self,
+        url: str,
+        data: bytes,
+        headers: dict[str, str] | None,
+        *,
+        stream: bool = True,
+    ) -> Response:
         headers["User-Agent"] = self._agent_name()
         return self.session.post(
             url,
             data=data,
             headers=headers,
-            stream=True,
+            stream=stream,
             timeout=self.timeout,
             verify=self.verify,
         )  # pytype: disable=wrong-arg-types

@@ -85,9 +85,14 @@ class OpenAIResponsesJsonClient:
         }
 
         def do_request(p: dict[str, Any]) -> dict[str, Any]:
-            resp = client.post(self.api_url, data=orjson.dumps(p), headers=headers)
-            resp.raise_for_status()
-            return resp.json()
+            resp = client.post(
+                self.api_url, data=orjson.dumps(p), headers=headers, stream=False
+            )
+            try:
+                resp.raise_for_status()
+                return resp.json()
+            finally:
+                resp.close()
 
         data = do_request(payload)
         if data.get("error") is not None:
