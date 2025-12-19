@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
-from .openai import OpenAIResponsesJsonClient
+from .openai import LLMOutputParseError, OpenAIResponsesJsonClient
 from .types import (
     ConversationState,
     ForbiddenConstraints,
@@ -116,7 +116,14 @@ class PlanReplyGateway:
     def run(self, *, request: PlanReplyRequest) -> PlanReplyResponse:
         last_error: Exception | None = None
         for attempt in range(self.max_rewrites + 1):
-            raw = self.provider.generate(request=request)
+            try:
+                raw = self.provider.generate(request=request)
+            except LLMOutputParseError as e:
+                last_error = e
+                if attempt >= self.max_rewrites:
+                    raise
+                request = _rewrite_request(request, reason=f"invalid_json:{e.reason}")
+                continue
             try:
                 response = PlanReplyResponse.from_json_dict(raw)
             except Exception as e:
@@ -167,13 +174,13 @@ class PlanReplyGateway:
 
 
 def _rewrite_request(request: PlanReplyRequest, *, reason: str) -> PlanReplyRequest:
-    system_role = (
-        request.system_role
-        + "\n\n"
-        + "Rewrite required: your previous output violated the contract ("
-        + reason
-        + "). Return ONLY a valid JSON object with keys: options_ko (list[str]), notes_en (string|null), unexpected_tokens (list[str]). "
-        + "Do not introduce unexpected tokens."
+    system_role = _with_rewrite_directive(
+        system_role=request.system_role,
+        reason=reason,
+        directive=(
+            "Return ONLY a valid JSON object with keys: options_ko (list[str]), notes_en (string|null), unexpected_tokens (list[str]). "
+            "Do not introduce unexpected tokens."
+        ),
     )
     return PlanReplyRequest(
         system_role=system_role,
@@ -181,6 +188,20 @@ def _rewrite_request(request: PlanReplyRequest, *, reason: str) -> PlanReplyRequ
         intent_en=request.intent_en,
         language_constraints=request.language_constraints,
         generation_instructions=request.generation_instructions,
+    )
+
+
+def _with_rewrite_directive(*, system_role: str, reason: str, directive: str) -> str:
+    marker = "\n\nRewrite required:"
+    if marker in system_role:
+        system_role = system_role.split(marker, 1)[0]
+    return (
+        system_role
+        + marker
+        + " your previous output violated the contract ("
+        + reason
+        + "). "
+        + directive
     )
 
 
@@ -218,6 +239,15 @@ class OpenAIPlanReplyProvider(PlanReplyProvider):
         )
 
     def generate(self, *, request: PlanReplyRequest) -> dict[str, Any]:
+        system_role = (
+            request.system_role
+            + "\n\n"
+            + "Task: You are helping a learner reply in Korean.\n"
+            + "- Read intent_en and produce 2–3 natural Korean reply options that express that intent.\n"
+            + "- Respect language_constraints when possible; if you must violate them, still produce options and list violating tokens in unexpected_tokens.\n"
+            + "- Keep each option short and natural; do not number options.\n"
+            + 'Return ONLY JSON exactly like {"options_ko":[...], "notes_en": null, "unexpected_tokens": []}.'
+        )
         return self._client.request_json(
-            system_role=request.system_role, user_json=request.to_json_dict()
+            system_role=system_role, user_json=request.to_json_dict()
         )

@@ -13,7 +13,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
     let started = false;
     let deckOptions: string[] = [];
-    let selectedDecks: string[] = ["Korean"];
+    let selectedDecks: string[] = [];
     let topicId = "room_objects";
     let message = "";
     type AssistantResponse = NonNullable<
@@ -32,7 +32,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let error: string | null = null;
     let intentEn = "";
     let replyOptions: string[] = [];
-    let applyDeck = "Korean";
+    let applyDeck = "";
     let showApplySuggestions = false;
     let lastWrap: any = null;
     let showPlanReply = false;
@@ -134,11 +134,21 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 return;
             }
             deckOptions = resp.decks.filter((d: unknown) => typeof d === "string");
-            if (!selectedDecks.length && deckOptions.length) {
+            if (!deckOptions.length) {
+                selectedDecks = [];
+                applyDeck = "";
+                return;
+            }
+
+            // If the current selection contains decks that no longer exist, drop them.
+            selectedDecks = selectedDecks.filter((d) => deckOptions.includes(d));
+            if (!selectedDecks.length) {
                 selectedDecks = [deckOptions[0]];
             }
-            if (deckOptions.length && !deckOptions.includes(applyDeck)) {
-                applyDeck = deckOptions[0];
+
+            // Default apply-deck to the first selected deck.
+            if (!applyDeck || !deckOptions.includes(applyDeck)) {
+                applyDeck = selectedDecks[0] ?? deckOptions[0];
             }
         });
     });
@@ -375,6 +385,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     return;
                 }
                 started = true;
+                if (
+                    selectedDecks.length &&
+                    (!applyDeck || !selectedDecks.includes(applyDeck))
+                ) {
+                    applyDeck = selectedDecks[0];
+                }
                 turns = [];
                 resolvedGlossesByTurn = {};
                 showHintByTurn = {};

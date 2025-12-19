@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import copy
 import json
+import time
+from collections import deque
 from concurrent.futures import Future
 from dataclasses import dataclass
 from threading import Lock
@@ -75,6 +77,8 @@ class _Session:
 
 class ConversationDialog(QDialog):
     TITLE = "conversationPractice"
+    _MAX_DONE_JOBS = 25
+    _MAX_QUEUED_EVENTS = 250
 
     def __init__(self, mw: aqt.main.AnkiQt) -> None:
         super().__init__(mw, Qt.WindowType.Window)
@@ -83,7 +87,7 @@ class ConversationDialog(QDialog):
         self._job_lock = Lock()
         self._busy = False
         self._jobs: dict[str, dict[str, Any]] = {}
-        self._queued_events: list[dict[str, Any]] = []
+        self._queued_events: deque[dict[str, Any]] = deque()
         disable_help_button(self)
         restoreGeom(self, self.TITLE, default_size=(900, 800))
         self.setWindowTitle("Conversation Practice")
@@ -266,7 +270,9 @@ class ConversationDialog(QDialog):
                 "status": "pending",
                 "kind": kind,
                 "turn_context": turn_context,
+                "created_at": time.monotonic(),
             }
+            self._prune_jobs_locked()
 
         def run() -> dict[str, Any]:
             try:
@@ -310,7 +316,9 @@ class ConversationDialog(QDialog):
                 if job is not None:
                     job["status"] = "done"
                     job["result"] = result
+                    job["done_at"] = time.monotonic()
                 self._busy = False
+                self._prune_jobs_locked()
 
         fut = self.mw.taskman.run_in_background(run, on_done, uses_collection=False)
         with self._job_lock:
@@ -423,7 +431,9 @@ class ConversationDialog(QDialog):
                     if job2 is not None:
                         job2["status"] = "done"
                         job2["result"] = result
+                        job2["done_at"] = time.monotonic()
                         self._busy = False
+                        self._prune_jobs_locked()
             else:
                 return {
                     "ok": True,
@@ -456,7 +466,7 @@ class ConversationDialog(QDialog):
             with self._job_lock:
                 if not self._queued_events:
                     return
-                payload = self._queued_events.pop(0)
+                payload = self._queued_events.popleft()
             try:
                 record_event_from_payload(
                     telemetry=self._session.telemetry,
@@ -468,6 +478,18 @@ class ConversationDialog(QDialog):
             except Exception:
                 # ignore bad queued events
                 pass
+
+    def _prune_jobs_locked(self) -> None:
+        # Prevent unbounded growth if the frontend never polls for completed jobs.
+        done_ids: list[str] = []
+        for jid, job in self._jobs.items():
+            if job.get("status") == "done" and isinstance(job.get("done_at"), float):
+                done_ids.append(jid)
+        if len(done_ids) <= self._MAX_DONE_JOBS:
+            return
+        done_ids.sort(key=lambda jid: float(self._jobs[jid].get("done_at", 0.0)))
+        for jid in done_ids[: len(done_ids) - self._MAX_DONE_JOBS]:
+            self._jobs.pop(jid, None)
 
     def _get_settings(self) -> dict[str, Any]:
         settings = load_conversation_settings(self.mw.col)
@@ -620,6 +642,8 @@ class ConversationDialog(QDialog):
         with self._job_lock:
             if self._busy:
                 if isinstance(payload, dict):
+                    while len(self._queued_events) >= self._MAX_QUEUED_EVENTS:
+                        self._queued_events.popleft()
                     self._queued_events.append(payload)
                 return {"ok": True, "queued": True}
         self._flush_queued_events()
@@ -699,7 +723,7 @@ class ConversationDialog(QDialog):
             api_key=api_key, model=self._session.settings.model
         )
         gateway = PlanReplyGateway(
-            provider=provider, max_rewrites=self._session.settings.max_rewrites
+            provider=provider, max_rewrites=max(1, self._session.settings.max_rewrites)
         )
         # reuse planner constraints for current state, without advancing the session
         temp_state = copy.deepcopy(self._session.state)

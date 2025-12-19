@@ -54,6 +54,8 @@ class HttpClient(DeprecatedNamesMixin):
         *,
         stream: bool = True,
     ) -> Response:
+        if headers is None:
+            headers = {}
         headers["User-Agent"] = self._agent_name()
         return self.session.post(
             url,

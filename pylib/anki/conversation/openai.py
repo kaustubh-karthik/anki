@@ -5,11 +5,13 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 from dataclasses import dataclass, field
 from threading import Lock
 from typing import Any, Callable
 
 import orjson
+import requests
 
 from anki.httpclient import HttpClient
 
@@ -19,9 +21,11 @@ logger = logging.getLogger(__name__)
 def _extract_text_fallback(data: dict[str, Any]) -> str:
     output = data.get("output")
     if not isinstance(output, list):
-        # Log what we actually got
-        logger.error(f"Expected 'output' to be a list, got: {type(output)}")
-        logger.error(f"Response structure: {json.dumps(data, indent=2)[:2000]}")
+        logger.error(
+            "Expected OpenAI 'output' to be a list; got %s (keys=%s).",
+            type(output),
+            list(data.keys()),
+        )
         raise ValueError(
             f"unable to extract text from OpenAI response: 'output' is {type(output)}, not list"
         )
@@ -48,11 +52,25 @@ def _extract_text_fallback(data: dict[str, Any]) -> str:
                 return text["value"]
 
     # If we get here, we couldn't find the text
-    logger.error(f"Could not find output_text in response structure")
-    logger.error(f"Full response: {json.dumps(data, indent=2)[:2000]}")
+    logger.error(
+        "Could not find output_text in OpenAI response structure (keys=%s).",
+        list(data.keys()),
+    )
     raise ValueError(
         "unable to extract text from OpenAI response: no output_text found in structure"
     )
+
+
+class LLMResponseError(RuntimeError):
+    """Base error for LLM client failures."""
+
+
+class LLMOutputParseError(LLMResponseError):
+    """LLM returned output that could not be parsed as the expected JSON object."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
 
 
 @dataclass
@@ -63,6 +81,9 @@ class OpenAIResponsesJsonClient:
     http_client_factory: Callable[[], HttpClient] = HttpClient
     timeout_s: float | tuple[float, float] = (5.0, 60.0)  # Reasonable timeout
     max_output_tokens: int = 256
+    max_retries: int = 2
+    retry_backoff_base_s: float = 0.5
+    retry_backoff_max_s: float = 8.0
     _client: HttpClient | None = field(default=None, init=False, repr=False)
     _lock: Lock = field(default_factory=Lock, init=False, repr=False)
 
@@ -137,17 +158,79 @@ class OpenAIResponsesJsonClient:
             "Content-Type": "application/json",
         }
 
-        def do_request(p: dict[str, Any]) -> dict[str, Any]:
-            resp = client.post(
-                api_url, data=orjson.dumps(p), headers=headers, stream=False
-            )
-            try:
-                resp.raise_for_status()
-                return resp.json()
-            finally:
-                resp.close()
-
         import time
+
+        def _should_retry_status(status: int) -> bool:
+            return status in (408, 409, 425, 429, 500, 502, 503, 504)
+
+        def _sleep_backoff(attempt: int) -> None:
+            backoff = min(
+                self.retry_backoff_max_s,
+                self.retry_backoff_base_s * (2**attempt),
+            )
+            time.sleep(random.random() * backoff)
+
+        def _safe_http_error(resp: requests.Response) -> str:
+            request_id = resp.headers.get("x-request-id") or resp.headers.get(
+                "request-id"
+            )
+            if request_id:
+                return f"OpenAI request failed: HTTP {resp.status_code} (request_id={request_id})"
+            return f"OpenAI request failed: HTTP {resp.status_code}"
+
+        def do_request(p: dict[str, Any]) -> dict[str, Any]:
+            for attempt in range(self.max_retries + 1):
+                resp: requests.Response | None = None
+                try:
+                    resp = client.post(
+                        api_url, data=orjson.dumps(p), headers=headers, stream=False
+                    )
+                    if resp.status_code >= 400 and _should_retry_status(resp.status_code):
+                        if attempt < self.max_retries:
+                            _sleep_backoff(attempt)
+                            continue
+                        resp.raise_for_status()
+
+                    resp.raise_for_status()
+                    try:
+                        data = resp.json()
+                    except Exception as e:
+                        raise LLMResponseError(
+                            "OpenAI returned non-JSON response"
+                        ) from e
+                    if not isinstance(data, dict):
+                        raise LLMResponseError(
+                            "OpenAI returned unexpected JSON type"
+                        )
+                    return data
+                except requests.exceptions.Timeout:
+                    if attempt < self.max_retries:
+                        _sleep_backoff(attempt)
+                        continue
+                    raise
+                except (
+                    requests.exceptions.ConnectionError,
+                    requests.exceptions.ChunkedEncodingError,
+                ):
+                    if attempt < self.max_retries:
+                        _sleep_backoff(attempt)
+                        continue
+                    raise
+                except requests.exceptions.HTTPError as e:
+                    if (
+                        resp is not None
+                        and _should_retry_status(resp.status_code)
+                        and attempt < self.max_retries
+                    ):
+                        _sleep_backoff(attempt)
+                        continue
+                    raise requests.exceptions.HTTPError(
+                        _safe_http_error(resp) if resp is not None else str(e)
+                    ) from e
+                finally:
+                    if resp is not None:
+                        resp.close()
+            raise LLMResponseError("OpenAI request failed after retries")
 
         start_time = time.time()
 
@@ -177,26 +260,26 @@ class OpenAIResponsesJsonClient:
                 logger.debug(
                     f"No output_text field, trying fallback. Response keys: {list(data.keys())}"
                 )
-                logger.debug(f"Full response: {json.dumps(data, indent=2)[:1000]}")
                 text = _extract_text_fallback(data)
         else:
             # /v1/chat/completions format
             try:
                 text = data["choices"][0]["message"]["content"]
             except (KeyError, IndexError, TypeError) as e:
-                logger.error(
-                    f"Failed to extract response. Data: {json.dumps(data, indent=2)[:500]}"
-                )
-                raise ValueError(
-                    f"Unable to extract text from OpenAI response: {e}"
+                logger.error("Failed to extract content from OpenAI response.")
+                raise LLMResponseError(
+                    "OpenAI returned unexpected response structure"
                 ) from e
 
         if not isinstance(text, str):
-            raise ValueError(f"Expected string content, got {type(text)}")
+            raise LLMOutputParseError("OpenAI returned non-text content")
 
-        parsed = json.loads(text)
+        try:
+            parsed = json.loads(text)
+        except Exception as e:
+            raise LLMOutputParseError("OpenAI returned invalid JSON") from e
         if not isinstance(parsed, dict):
-            raise ValueError("OpenAI returned non-object JSON")
+            raise LLMOutputParseError("OpenAI returned non-object JSON")
         return parsed
 
     def __del__(self) -> None:

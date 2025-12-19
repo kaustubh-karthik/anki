@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .contract import check_response_against_request
-from .openai import OpenAIResponsesJsonClient
+from .openai import LLMOutputParseError, OpenAIResponsesJsonClient
 from .types import ConversationRequest, ConversationResponse
 from .validation import validate_tokens
 
@@ -49,7 +49,14 @@ class ConversationGateway:
     def run_turn(self, *, request: ConversationRequest) -> ConversationResponse:
         last_error: Exception | None = None
         for attempt in range(self.max_rewrites + 1):
-            raw = self.provider.generate(request=request)
+            try:
+                raw = self.provider.generate(request=request)
+            except LLMOutputParseError as e:
+                last_error = e
+                if attempt >= self.max_rewrites:
+                    raise
+                request = _rewrite_request(request, reason=f"invalid_json:{e.reason}")
+                continue
             try:
                 response = ConversationResponse.from_json_dict(raw)
             except Exception as e:
@@ -102,12 +109,12 @@ class ConversationGateway:
 def _rewrite_request(
     request: ConversationRequest, *, reason: str
 ) -> ConversationRequest:
-    system_role = (
-        request.system_role
-        + "\n\n"
-        + "Rewrite required: your previous output violated the contract ("
-        + reason
-        + "). Return ONLY a valid JSON object matching the schema, and do not introduce unexpected tokens."
+    system_role = _with_rewrite_directive(
+        system_role=request.system_role,
+        reason=reason,
+        directive=(
+            "Return ONLY a valid JSON object matching the schema, and do not introduce unexpected tokens."
+        ),
     )
     return ConversationRequest(
         system_role=system_role,
@@ -115,4 +122,19 @@ def _rewrite_request(
         user_input=request.user_input,
         language_constraints=request.language_constraints,
         generation_instructions=request.generation_instructions,
+    )
+
+
+def _with_rewrite_directive(*, system_role: str, reason: str, directive: str) -> str:
+    # Avoid unbounded prompt growth if multiple rewrites are requested.
+    marker = "\n\nRewrite required:"
+    if marker in system_role:
+        system_role = system_role.split(marker, 1)[0]
+    return (
+        system_role
+        + marker
+        + " your previous output violated the contract ("
+        + reason
+        + "). "
+        + directive
     )

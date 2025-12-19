@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from typing import Any
 
 from anki.consts import CARD_TYPE_REV, QUEUE_TYPE_REV
 from anki.conversation.events import apply_missed_targets
@@ -13,6 +14,7 @@ from anki.conversation.gateway import ConversationGateway, ConversationProvider
 from anki.conversation.glossary import lookup_gloss, rebuild_glossary_from_snapshot
 from anki.conversation.keys import read_api_key_file, resolve_openai_api_key
 from anki.conversation.local_provider import LocalConversationProvider
+from anki.conversation.openai import LLMOutputParseError
 from anki.conversation.plan_reply import (
     FakePlanReplyProvider,
     PlanReplyGateway,
@@ -47,6 +49,7 @@ from anki.conversation.types import (
     UserInput,
 )
 from anki.decks import DeckId
+from anki.httpclient import HttpClient
 from tests.shared import getEmptyCol
 
 
@@ -1343,3 +1346,79 @@ def test_apply_missed_targets_records_non_lexeme_items() -> None:
 
     finally:
         col.close()
+
+
+def test_httpclient_post_accepts_none_headers() -> None:
+    client = HttpClient()
+    try:
+        class DummySession:
+            def post(self, *args: Any, **kwargs: Any) -> str:  # type: ignore[override]
+                headers = kwargs.get("headers")
+                assert isinstance(headers, dict)
+                assert "User-Agent" in headers
+                return "ok"
+
+        client.session = DummySession()  # type: ignore[assignment]
+        assert (
+            client.post("https://example.invalid", b"{}", None, stream=False) == "ok"  # type: ignore[comparison-overlap]
+        )
+    finally:
+        client.close()
+
+
+def test_gateway_rewrites_on_llm_output_parse_error() -> None:
+    class FlakyProvider(ConversationProvider):
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def generate(self, *, request: ConversationRequest) -> dict[str, Any]:
+            self.calls += 1
+            if self.calls == 1:
+                raise LLMOutputParseError("invalid JSON")
+            return {
+                "assistant_reply_ko": "네.",
+                "follow_up_question_ko": "뭐예요?",
+                "micro_feedback": {"type": "none", "content_ko": "", "content_en": ""},
+                "suggested_user_intent_en": None,
+                "targets_used": [],
+                "unexpected_tokens": [],
+                "word_glosses": {},
+            }
+
+    provider = FlakyProvider()
+    gateway = ConversationGateway(provider=provider, max_rewrites=1)
+    req = ConversationRequest(
+        system_role="system",
+        conversation_state=ConversationState(summary="s"),
+        user_input=UserInput(text_ko="t"),
+        language_constraints=LanguageConstraints(),
+        generation_instructions=GenerationInstructions(),
+    )
+    resp = gateway.run_turn(request=req)
+    assert resp.assistant_reply_ko == "네."
+    assert provider.calls == 2
+
+
+def test_plan_reply_gateway_rewrites_on_llm_output_parse_error() -> None:
+    class FlakyPlanProvider(FakePlanReplyProvider):
+        def generate(self, *, request: PlanReplyRequest) -> dict[str, Any]:
+            if self.i == 0:
+                self.i += 1
+                raise LLMOutputParseError("invalid JSON")
+            return super().generate(request=request)
+
+    provider = FlakyPlanProvider(
+        scripted=[{"options_ko": ["네."], "notes_en": None, "unexpected_tokens": []}]
+    )
+    gateway = PlanReplyGateway(provider=provider, max_rewrites=1)
+    req = PlanReplyRequest(
+        system_role="system",
+        conversation_state=ConversationState(summary="s"),
+        intent_en="say yes",
+        language_constraints=LanguageConstraints(
+            forbidden=ForbiddenConstraints(sentence_length_max=0)
+        ),
+        generation_instructions=GenerationInstructions(safe_mode=False),
+    )
+    resp = gateway.run(request=req)
+    assert resp.options_ko == ("네.",)
