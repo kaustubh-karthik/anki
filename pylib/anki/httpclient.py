@@ -24,7 +24,7 @@ ProgressCallback = Callable[[int, int], None]
 
 class HttpClient(DeprecatedNamesMixin):
     verify = True
-    timeout = 60
+    timeout: float | tuple[float, float] = 60
     # args are (upload_bytes_in_chunk, download_bytes_in_chunk)
     progress_hook: ProgressCallback | None = None
 

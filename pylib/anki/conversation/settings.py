@@ -21,7 +21,7 @@ class ConversationSettings:
     model: str = "gpt-5-nano"
     safe_mode: bool = True
     redaction_level: RedactionLevel = RedactionLevel.minimal
-    max_rewrites: int = 2
+    max_rewrites: int = 0
     lexeme_field_index: int = 0
     lexeme_field_names: tuple[str, ...] = ()
     gloss_field_index: int | None = 1
@@ -63,7 +63,7 @@ def load_conversation_settings(col: Collection) -> ConversationSettings:
     ):
         redaction_level_raw = RedactionLevel.minimal.value
     if not isinstance(max_rewrites, int) or max_rewrites < 0 or max_rewrites > 10:
-        max_rewrites = 2
+        max_rewrites = 0
     if (
         not isinstance(lexeme_field_index, int)
         or lexeme_field_index < 0

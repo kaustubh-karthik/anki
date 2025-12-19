@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from .contract import check_response_against_request
@@ -23,10 +23,20 @@ class ConversationProvider(ABC):
 class OpenAIConversationProvider(ConversationProvider):
     api_key: str
     model: str = "gpt-5-nano"
+    timeout_s: float | tuple[float, float] = (10.0, 180.0)
+    max_output_tokens: int = 256
+    _client: OpenAIResponsesJsonClient = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._client = OpenAIResponsesJsonClient(
+            api_key=self.api_key,
+            model=self.model,
+            timeout_s=self.timeout_s,
+            max_output_tokens=self.max_output_tokens,
+        )
 
     def generate(self, *, request: ConversationRequest) -> dict[str, Any]:
-        client = OpenAIResponsesJsonClient(api_key=self.api_key, model=self.model)
-        return client.request_json(
+        return self._client.request_json(
             system_role=request.system_role, user_json=request.to_json_dict()
         )
 

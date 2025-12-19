@@ -59,7 +59,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         );
     }
 
-    async function waitForJob(jobId: string, timeoutMs = 120_000): Promise<any> {
+    async function waitForJob(jobId: string, timeoutMs = 600_000): Promise<any> {
         const startedAt = Date.now();
         for (;;) {
             const resp: any = await bridgeCommandPromise(

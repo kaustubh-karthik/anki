@@ -214,6 +214,8 @@ def test_cli_run_is_fully_automatable_and_writes_db(tmp_path) -> None:
                 str(script_path),
                 "--provider",
                 "fake",
+                "--max-rewrites",
+                "1",
                 "--provider-script",
                 str(provider_script_path),
             ]

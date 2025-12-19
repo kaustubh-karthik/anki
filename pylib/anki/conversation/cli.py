@@ -129,6 +129,7 @@ def main(argv: list[str] | None = None) -> None:
     run.add_argument("--model")
     run.add_argument("--redaction", choices=[e.value for e in RedactionLevel])
     run.add_argument("--safe-mode", action=argparse.BooleanOptionalAction, default=None)
+    run.add_argument("--max-rewrites", type=int)
     run.add_argument("--lexeme-field-index", type=int)
     run.add_argument("--gloss-field-index", type=int)
     run.add_argument("--no-gloss-field", action="store_true")
@@ -272,6 +273,12 @@ def _merged_settings(
     else:
         redaction_level = RedactionLevel(redaction_raw)
 
+    max_rewrites = getattr(args, "max_rewrites", None)
+    if max_rewrites is None:
+        max_rewrites = base.max_rewrites
+    if not isinstance(max_rewrites, int) or max_rewrites < 0 or max_rewrites > 10:
+        max_rewrites = base.max_rewrites
+
     lexeme_field_index = getattr(args, "lexeme_field_index", None)
     if lexeme_field_index is None:
         lexeme_field_index = base.lexeme_field_index
@@ -291,7 +298,7 @@ def _merged_settings(
         model=model,
         safe_mode=bool(safe_mode),
         redaction_level=redaction_level,
-        max_rewrites=base.max_rewrites,
+        max_rewrites=max_rewrites,
         lexeme_field_index=int(lexeme_field_index),
         lexeme_field_names=base.lexeme_field_names,
         gloss_field_index=None if gloss_field_index is None else int(gloss_field_index),
