@@ -31,7 +31,11 @@ class ConversationSettings:
     band_fragile_threshold: float = 0.6
     band_stretch_threshold: float = 0.85
     allow_new_words: bool = False
-    max_new_words_per_session: int = 3
+    max_new_words_per_session: int = 5
+    force_new_word_every_n_turns: int = 3
+    treat_unseen_deck_words_as_support: bool = False
+    lexical_similarity_max: float = 0.7
+    semantic_similarity_max: float = 0.6
 
 
 CONFIG_KEY = "elites.conversation.settings"
@@ -64,6 +68,19 @@ def load_conversation_settings(col: Collection) -> ConversationSettings:
     allow_new_words = raw.get("allow_new_words", defaults.allow_new_words)
     max_new_words_per_session = raw.get(
         "max_new_words_per_session", defaults.max_new_words_per_session
+    )
+    force_new_word_every_n_turns = raw.get(
+        "force_new_word_every_n_turns", defaults.force_new_word_every_n_turns
+    )
+    treat_unseen_deck_words_as_support = raw.get(
+        "treat_unseen_deck_words_as_support",
+        defaults.treat_unseen_deck_words_as_support,
+    )
+    lexical_similarity_max = raw.get(
+        "lexical_similarity_max", defaults.lexical_similarity_max
+    )
+    semantic_similarity_max = raw.get(
+        "semantic_similarity_max", defaults.semantic_similarity_max
     )
 
     if not isinstance(provider, str):
@@ -135,6 +152,26 @@ def load_conversation_settings(col: Collection) -> ConversationSettings:
         or max_new_words_per_session > 50
     ):
         max_new_words_per_session = defaults.max_new_words_per_session
+    if (
+        not isinstance(force_new_word_every_n_turns, int)
+        or force_new_word_every_n_turns < 1
+        or force_new_word_every_n_turns > 10
+    ):
+        force_new_word_every_n_turns = defaults.force_new_word_every_n_turns
+    if not isinstance(treat_unseen_deck_words_as_support, bool):
+        treat_unseen_deck_words_as_support = (
+            defaults.treat_unseen_deck_words_as_support
+        )
+    if not isinstance(lexical_similarity_max, (int, float)):
+        lexical_similarity_max = defaults.lexical_similarity_max
+    if not isinstance(semantic_similarity_max, (int, float)):
+        semantic_similarity_max = defaults.semantic_similarity_max
+    lexical_similarity_max = float(lexical_similarity_max)
+    semantic_similarity_max = float(semantic_similarity_max)
+    if not (0.0 < lexical_similarity_max < 1.0):
+        lexical_similarity_max = defaults.lexical_similarity_max
+    if not (0.0 < semantic_similarity_max < 1.0):
+        semantic_similarity_max = defaults.semantic_similarity_max
 
     return ConversationSettings(
         provider=provider,
@@ -152,6 +189,10 @@ def load_conversation_settings(col: Collection) -> ConversationSettings:
         band_stretch_threshold=band_stretch_threshold,
         allow_new_words=allow_new_words,
         max_new_words_per_session=max_new_words_per_session,
+        force_new_word_every_n_turns=force_new_word_every_n_turns,
+        treat_unseen_deck_words_as_support=treat_unseen_deck_words_as_support,
+        lexical_similarity_max=lexical_similarity_max,
+        semantic_similarity_max=semantic_similarity_max,
     )
 
 
@@ -174,6 +215,12 @@ def save_conversation_settings(col: Collection, settings: ConversationSettings) 
             "band_stretch_threshold": settings.band_stretch_threshold,
             "allow_new_words": settings.allow_new_words,
             "max_new_words_per_session": settings.max_new_words_per_session,
+            "force_new_word_every_n_turns": settings.force_new_word_every_n_turns,
+            "treat_unseen_deck_words_as_support": (
+                settings.treat_unseen_deck_words_as_support
+            ),
+            "lexical_similarity_max": settings.lexical_similarity_max,
+            "semantic_similarity_max": settings.semantic_similarity_max,
         },
         undoable=False,
     )

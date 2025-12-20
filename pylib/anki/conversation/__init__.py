@@ -33,7 +33,7 @@ from .settings import (
     save_conversation_settings,
 )
 from .snapshot import DeckSnapshot, build_deck_snapshot
-from .suggest import apply_suggested_cards, suggestions_from_wrap
+from .suggest import apply_reinforced_cards, reinforced_cards_from_wrap
 from .telemetry import ConversationTelemetryStore
 from .translate import (
     LocalTranslateProvider,
@@ -77,7 +77,7 @@ __all__ = [
     "resolve_openai_api_key",
     "LocalConversationProvider",
     "ConversationSession",
-    "apply_suggested_cards",
+    "apply_reinforced_cards",
     "build_deck_snapshot",
     "compute_session_wrap",
     "check_response_against_request",
@@ -90,7 +90,7 @@ __all__ = [
     "rebuild_glossary_from_snapshot",
     "select_collocation_targets",
     "select_grammar_patterns",
-    "suggestions_from_wrap",
+    "reinforced_cards_from_wrap",
     "LocalTranslateProvider",
     "OpenAITranslateProvider",
     "TranslateGateway",

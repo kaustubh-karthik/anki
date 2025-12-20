@@ -40,7 +40,7 @@ from .settings import (
     save_conversation_settings,
 )
 from .snapshot import build_deck_snapshot
-from .suggest import apply_suggested_cards, suggestions_from_wrap
+from .suggest import apply_reinforced_cards, reinforced_cards_from_wrap
 from .telemetry import ConversationTelemetryStore
 from .types import (
     ConversationRequest,
@@ -231,8 +231,8 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     apply_sug = sub.add_parser(
-        "apply-suggestions",
-        help="Apply suggested cards from the most recent session wrap",
+        "apply-reinforced",
+        help="Apply reinforced-word cards from the most recent session wrap",
     )
     apply_sug.add_argument("--collection", required=True)
     apply_sug.add_argument(
@@ -301,8 +301,8 @@ def main(argv: list[str] | None = None) -> None:
         _cmd_openai_smoke(args)
     elif args.cmd == "plan-reply":
         _cmd_plan_reply(args)
-    elif args.cmd == "apply-suggestions":
-        _cmd_apply_suggestions(args)
+    elif args.cmd == "apply-reinforced":
+        _cmd_apply_reinforced(args)
     elif args.cmd == "gloss":
         _cmd_gloss(args)
     elif args.cmd == "rebuild-glossary":
@@ -552,6 +552,8 @@ def _cmd_plan_reply(args: argparse.Namespace) -> None:
             provide_suggested_english_intent=instructions.provide_suggested_english_intent,
             max_corrections=instructions.max_corrections,
             safe_mode=settings.safe_mode,
+            lexical_similarity_max=settings.lexical_similarity_max,
+            semantic_similarity_max=settings.semantic_similarity_max,
         )
 
         provider: object
@@ -586,7 +588,7 @@ def _cmd_plan_reply(args: argparse.Namespace) -> None:
         col.close()
 
 
-def _cmd_apply_suggestions(args: argparse.Namespace) -> None:
+def _cmd_apply_reinforced(args: argparse.Namespace) -> None:
     col = Collection(args.collection)
     try:
         did = col.decks.id_for_name(args.deck)
@@ -610,8 +612,8 @@ def _cmd_apply_suggestions(args: argparse.Namespace) -> None:
             raise SystemExit("no valid session wrap found")
         summary = json.loads(summary_json)
         wrap = summary.get("wrap", {})
-        suggestions = suggestions_from_wrap(wrap, deck_id=int(did))
-        created = apply_suggested_cards(col, suggestions)
+        suggestions = reinforced_cards_from_wrap(wrap, deck_id=int(did))
+        created = apply_reinforced_cards(col, suggestions)
         print(orjson.dumps({"created_note_ids": created}).decode("utf-8"))
     finally:
         col.close()

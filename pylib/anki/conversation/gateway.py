@@ -99,24 +99,61 @@ class ConversationGateway:
                     )
                     continue
 
-                validations = [
-                    validate_tokens(response.assistant_reply_ko, request.language_constraints)
-                ]
-                if isinstance(response.suggested_user_reply_ko, str) and response.suggested_user_reply_ko.strip():
-                    validations.append(
-                        validate_tokens(
-                            response.suggested_user_reply_ko, request.language_constraints
-                        )
-                    )
-                unexpected_unique = tuple(
-                    dict.fromkeys(
-                        token for v in validations for token in (v.unexpected_tokens or ())
-                    )
+                assistant_validation = validate_tokens(
+                    response.assistant_reply_ko, request.language_constraints
                 )
-                if unexpected_unique:
-                    allow_new_vocab = (
-                        not request.language_constraints.forbidden.introduce_new_vocab
+                assistant_unexpected = assistant_validation.unexpected_tokens
+                suggested_unexpected: tuple[str, ...] = ()
+                if isinstance(response.suggested_user_reply_ko, str) and response.suggested_user_reply_ko.strip():
+                    suggested_validation = validate_tokens(
+                        response.suggested_user_reply_ko, request.language_constraints
                     )
+                    suggested_unexpected = suggested_validation.unexpected_tokens
+                    extra_suggested = [
+                        token
+                        for token in suggested_unexpected
+                        if token not in assistant_unexpected
+                    ]
+                    if extra_suggested:
+                        if attempt >= self.max_rewrites:
+                            return ConversationResponse(
+                                assistant_reply_ko=response.assistant_reply_ko,
+                                micro_feedback=response.micro_feedback,
+                                suggested_user_intent_en=response.suggested_user_intent_en,
+                                suggested_user_reply_ko=response.suggested_user_reply_ko,
+                                suggested_user_reply_en=response.suggested_user_reply_en,
+                                targets_used=response.targets_used,
+                                unexpected_tokens=assistant_unexpected,
+                                word_glosses=response.word_glosses,
+                            )
+                        request = _rewrite_request(
+                            request,
+                            reason=f"unexpected_tokens_suggested_reply:{','.join(extra_suggested)}",
+                        )
+                        continue
+                unexpected_unique = tuple(
+                    dict.fromkeys(list(assistant_unexpected) + list(suggested_unexpected))
+                )
+                require_new_vocab = request.language_constraints.require_new_vocab
+                allow_new_vocab = (
+                    not request.language_constraints.forbidden.introduce_new_vocab
+                )
+                if not unexpected_unique:
+                    if require_new_vocab:
+                        if attempt >= self.max_rewrites:
+                            return ConversationResponse(
+                                assistant_reply_ko=response.assistant_reply_ko,
+                                micro_feedback=response.micro_feedback,
+                                suggested_user_intent_en=response.suggested_user_intent_en,
+                                suggested_user_reply_ko=response.suggested_user_reply_ko,
+                                suggested_user_reply_en=response.suggested_user_reply_en,
+                                targets_used=response.targets_used,
+                                unexpected_tokens=response.unexpected_tokens,
+                                word_glosses=response.word_glosses,
+                            )
+                        request = _rewrite_request(request, reason="missing_new_word")
+                        continue
+                else:
                     unexpected_glosses = dict(response.word_glosses)
                     missing_glosses = [
                         token
@@ -124,6 +161,8 @@ class ConversationGateway:
                         if not unexpected_glosses.get(token)
                     ]
                     too_many_unexpected = allow_new_vocab and len(unexpected_unique) > 1
+                    if require_new_vocab and len(unexpected_unique) != 1:
+                        too_many_unexpected = True
                     if allow_new_vocab and (too_many_unexpected or missing_glosses):
                         if attempt >= self.max_rewrites:
                             return ConversationResponse(
@@ -169,7 +208,19 @@ class ConversationGateway:
                         suggested_user_reply_ko=response.suggested_user_reply_ko,
                         suggested_user_reply_en=response.suggested_user_reply_en,
                         targets_used=response.targets_used,
-                        unexpected_tokens=unexpected_unique,
+                        unexpected_tokens=assistant_unexpected,
+                        word_glosses=response.word_glosses,
+                    )
+
+                if response.unexpected_tokens != assistant_unexpected:
+                    response = ConversationResponse(
+                        assistant_reply_ko=response.assistant_reply_ko,
+                        micro_feedback=response.micro_feedback,
+                        suggested_user_intent_en=response.suggested_user_intent_en,
+                        suggested_user_reply_ko=response.suggested_user_reply_ko,
+                        suggested_user_reply_en=response.suggested_user_reply_en,
+                        targets_used=response.targets_used,
+                        unexpected_tokens=assistant_unexpected,
                         word_glosses=response.word_glosses,
                     )
 
@@ -211,11 +262,24 @@ class ConversationGateway:
 def _rewrite_request(
     request: ConversationRequest, *, reason: str
 ) -> ConversationRequest:
+    allow_new_vocab = not request.language_constraints.forbidden.introduce_new_vocab
+    require_new_vocab = request.language_constraints.require_new_vocab
+    if require_new_vocab:
+        vocab_directive = (
+            "Introduce exactly ONE new content word (with glosses), and no other new words."
+        )
+    elif allow_new_vocab:
+        vocab_directive = (
+            "You may introduce at most ONE new content word (with glosses)."
+        )
+    else:
+        vocab_directive = "Do not introduce any new content words."
     system_role = _with_rewrite_directive(
         system_role=request.system_role,
         reason=reason,
         directive=(
-            "Return ONLY a valid JSON object matching the schema, and do not introduce unexpected tokens."
+            "Return ONLY a valid JSON object matching the schema. "
+            + vocab_directive
         ),
     )
     return ConversationRequest(

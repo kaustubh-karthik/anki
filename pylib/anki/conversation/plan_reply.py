@@ -37,15 +37,26 @@ class PlanReplyRequest:
             return out
 
         allowed_support = list(self.language_constraints.allowed_support)
+        allowed_stretch = list(self.language_constraints.allowed_stretch)
+        reinforced_words = list(self.language_constraints.reinforced_words)
         target_words: list[str] = []
         for t in self.language_constraints.must_target:
-            target_words.extend(list(t.surface_forms))
+            if t.type == "vocab":
+                target_words.extend(list(t.surface_forms))
 
-        allowed_content_words = dedupe(allowed_support + target_words)
+        allowed_content_words = dedupe(
+            allowed_support + allowed_stretch + reinforced_words + target_words
+        )
         target_words = dedupe(target_words)
+        reinforced_words = dedupe(reinforced_words)
+        stretch_words = dedupe(allowed_stretch)
+        support_words = dedupe(allowed_support)
 
         allowed_str = ", ".join(allowed_content_words)
         target_str = ", ".join(target_words)
+        reinforced_str = ", ".join(reinforced_words)
+        stretch_str = ", ".join(stretch_words)
+        support_str = ", ".join(support_words)
 
         targets_lines: list[str] = []
         for t in self.language_constraints.must_target:
@@ -66,7 +77,10 @@ class PlanReplyRequest:
             "- If the draft is already good, return improved/natural variants.\n"
             "- Keep replies short and natural, and do NOT ask a question.\n\n"
             f"For content words, use ONLY these Korean words: {{{allowed_str}}}\n"
-            f"Prioritize using these target words when natural: {{{target_str}}}\n"
+            f"Target words (prefer at least one if natural): {{{target_str}}}\n"
+            f"Reinforced words (use if they fit naturally): {{{reinforced_str}}}\n"
+            f"Stretch words: {{{stretch_str}}}\n"
+            f"Support words: {{{support_str}}}\n"
             f"New vocab allowed: {str(new_vocab_allowed).lower()}\n"
             f"Max tokens (approx): {max_len}\n\n"
             "Targets (use IDs in notes if relevant):\n"

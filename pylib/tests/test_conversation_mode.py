@@ -35,7 +35,7 @@ from anki.conversation.settings import (
     save_conversation_settings,
 )
 from anki.conversation.snapshot import DeckSnapshot, SnapshotItem, build_deck_snapshot
-from anki.conversation.suggest import apply_suggested_cards, suggestions_from_wrap
+from anki.conversation.suggest import apply_reinforced_cards, reinforced_cards_from_wrap
 from anki.conversation.telemetry import ConversationTelemetryStore
 from anki.conversation.topics import get_topic
 from anki.conversation.translate import (
@@ -850,15 +850,15 @@ def test_plan_reply_gateway_rewrites_on_unexpected_tokens() -> None:
     assert resp.unexpected_tokens == ()
 
 
-def test_apply_suggested_cards_creates_basic_notes() -> None:
+def test_apply_reinforced_cards_creates_basic_notes() -> None:
     col = getEmptyCol()
     try:
         suggestions = [
             {"front": "의자", "back": "chair", "tags": ["conv_suggested"]},
         ]
-        wrap = {"suggested_cards": suggestions}
-        card_suggestions = suggestions_from_wrap(wrap, deck_id=1)
-        note_ids = apply_suggested_cards(col, card_suggestions)
+        wrap = {"reinforced_words": suggestions}
+        card_suggestions = reinforced_cards_from_wrap(wrap, deck_id=1)
+        note_ids = apply_reinforced_cards(col, card_suggestions)
         assert len(note_ids) == 1
         assert col.note_count() == 1
         assert "conv_suggested" in col.tags.all()
@@ -1645,9 +1645,9 @@ def test_new_word_pipeline_graduates_and_shows_in_wrap() -> None:
         lexeme="신발",
         gloss="shoes",
         introduced_turn=0,
-        current_stage=3,
-        exposure_count=3,
-        successful_uses=0,
+        current_stage=2,
+        exposure_count=2,
+        last_seen_turn=0,
     )
     _, constraints, _ = planner.plan_turn(
         state,
@@ -1666,11 +1666,11 @@ def test_new_word_pipeline_graduates_and_shows_in_wrap() -> None:
     wrap = compute_session_wrap(
         snapshot=snapshot, mastery={}, new_word_states=state.new_word_states
     )
-    suggested = wrap.get("suggested_cards")
+    suggested = wrap.get("reinforced_words")
     suggested_cards = suggested if isinstance(suggested, list) else []
     assert any(
         isinstance(c, dict)
         and c.get("front") == "신발"
-        and "conv_new_word" in (c.get("tags") or [])
+        and "conv_reinforced" in (c.get("tags") or [])
         for c in suggested_cards
     )

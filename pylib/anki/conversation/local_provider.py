@@ -21,6 +21,8 @@ class LocalConversationProvider(ConversationProvider):
 
     def generate(self, *, request: ConversationRequest) -> dict[str, Any]:
         allowed = set(request.language_constraints.allowed_support)
+        allowed.update(request.language_constraints.allowed_stretch)
+        allowed.update(request.language_constraints.reinforced_words)
 
         def pick_allowed(preferred: tuple[str, ...], fallback: str) -> str:
             for token in preferred:
@@ -67,6 +69,8 @@ class LocalConversationProvider(ConversationProvider):
         # the UI can still show something in offline mode.
         # (Online providers are expected to return real English glosses.)
         required_stems = set(request.language_constraints.allowed_support)
+        required_stems.update(request.language_constraints.allowed_stretch)
+        required_stems.update(request.language_constraints.reinforced_words)
         for mt in request.language_constraints.must_target:
             required_stems.update(mt.surface_forms)
         word_glosses: dict[str, str] = {}

@@ -121,6 +121,8 @@ def validate_tokens(
     ),
 ) -> TokenValidation:
     allowed: set[str] = set(constraints.allowed_support)
+    allowed.update(constraints.allowed_stretch)
+    allowed.update(constraints.reinforced_words)
     for mt in constraints.must_target:
         allowed.update(mt.surface_forms)
     allowed.update(always_allowed)

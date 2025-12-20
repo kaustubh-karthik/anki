@@ -37,7 +37,10 @@ class ForbiddenConstraints:
 @dataclass(frozen=True)
 class LanguageConstraints:
     must_target: tuple[MustTarget, ...] = ()
+    allowed_stretch: tuple[str, ...] = ()
     allowed_support: tuple[str, ...] = ()
+    reinforced_words: tuple[str, ...] = ()
+    require_new_vocab: bool = False
     allowed_grammar: tuple[GrammarPattern, ...] = ()
     forbidden: ForbiddenConstraints = field(default_factory=ForbiddenConstraints)
 
@@ -51,6 +54,8 @@ class GenerationInstructions:
     provide_suggested_english_intent: bool = True
     max_corrections: int = 1
     safe_mode: bool = True
+    lexical_similarity_max: float = 0.7
+    semantic_similarity_max: float = 0.6
 
 
 @dataclass(frozen=True)
@@ -87,16 +92,27 @@ class ConversationRequest:
             return out
 
         allowed_support = list(self.language_constraints.allowed_support)
+        allowed_stretch = list(self.language_constraints.allowed_stretch)
+        reinforced_words = list(self.language_constraints.reinforced_words)
         target_words: list[str] = []
         for t in self.language_constraints.must_target:
-            target_words.extend(list(t.surface_forms))
+            if t.type == "vocab":
+                target_words.extend(list(t.surface_forms))
 
-        allowed_content_words = dedupe(allowed_support + target_words)
+        allowed_content_words = dedupe(
+            allowed_support + allowed_stretch + reinforced_words + target_words
+        )
         target_words = dedupe(target_words)
+        reinforced_words = dedupe(reinforced_words)
+        stretch_words = dedupe(allowed_stretch)
+        support_words = dedupe(allowed_support)
         target_ids = dedupe([str(t.id) for t in self.language_constraints.must_target])
 
         allowed_str = ", ".join(allowed_content_words)
         target_str = ", ".join(target_words)
+        reinforced_str = ", ".join(reinforced_words)
+        stretch_str = ", ".join(stretch_words)
+        support_str = ", ".join(support_words)
         target_ids_str = ", ".join(target_ids)
 
         targets_lines: list[str] = []
@@ -105,6 +121,7 @@ class ConversationRequest:
             targets_lines.append(f"- {t.id}: {{{forms}}}")
 
         new_vocab_allowed = not self.language_constraints.forbidden.introduce_new_vocab
+        new_vocab_required = self.language_constraints.require_new_vocab
         max_len = self.language_constraints.forbidden.sentence_length_max
 
         last_assistant = (self.conversation_state.last_assistant_turn_ko or "").strip()
@@ -119,9 +136,14 @@ class ConversationRequest:
             f"User (KO): {user_text}\n\n"
             f"For content words (nouns/verbs/adjectives/adverbs), use ONLY these Korean words: "
             f"{{{allowed_str}}}\n"
-            f"Prioritize using these target words when natural: {{{target_str}}}\n"
+            f"Target words (must include at least one): {{{target_str}}}\n"
+            f"Reinforced words (use if they fit naturally): {{{reinforced_str}}}\n"
+            f"Stretch words: {{{stretch_str}}}\n"
+            f"Support words: {{{support_str}}}\n"
+            "Priority bias: targets → reinforced → stretch → support.\n"
             f"Valid target IDs (for targets_used): {{{target_ids_str}}}\n"
             f"New vocab allowed: {str(new_vocab_allowed).lower()}\n"
+            f"New vocab required: {str(new_vocab_required).lower()}\n"
             f"Max tokens (approx): {max_len}\n\n"
             "Targets (use IDs in targets_used if used):\n"
             + ("\n".join(targets_lines) if targets_lines else "- (none)")

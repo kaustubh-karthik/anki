@@ -40,7 +40,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let planReplyDraftKo = "";
     let replyOptions: string[] = [];
     let applyDeck = "";
-    let showApplySuggestions = false;
+    let showApplyReinforced = false;
+    let applyReinforcedResult: string | null = null;
     let lastWrap: any = null;
     let showPlanReply = false;
     let showSettings = false;
@@ -698,18 +699,17 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         }
     }
 
-    let applySuggestionsResult: string | null = null;
-    function applySuggestions(): void {
+    function applyReinforced(): void {
         error = null;
-        applySuggestionsResult = null;
+        applyReinforcedResult = null;
         bridgeCommand(
-            buildConversationCommand("apply_suggestions", { deck: applyDeck }),
+            buildConversationCommand("apply_reinforced", { deck: applyDeck }),
             (resp: any) => {
                 if (!resp?.ok) {
-                    error = resp?.error ?? "apply suggestions failed.";
+                    error = resp?.error ?? "apply reinforced words failed.";
                     return;
                 }
-                applySuggestionsResult = `created notes: ${(resp.created_note_ids ?? []).join(", ")}`;
+                applyReinforcedResult = `created notes: ${(resp.created_note_ids ?? []).join(", ")}`;
             },
         );
     }
@@ -843,6 +843,55 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 />
             </div>
             <div class="row">
+                <label>
+                    <input type="checkbox" bind:checked={settings.allow_new_words} />
+                    allow_new_words
+                </label>
+                <label for="max_new_words_per_session">max_new_words_per_session</label>
+                <input
+                    id="max_new_words_per_session"
+                    type="number"
+                    bind:value={settings.max_new_words_per_session}
+                    min="0"
+                    max="50"
+                />
+                <label for="force_new_word_every_n_turns">force_new_word_every_n_turns</label>
+                <input
+                    id="force_new_word_every_n_turns"
+                    type="number"
+                    bind:value={settings.force_new_word_every_n_turns}
+                    min="1"
+                    max="10"
+                />
+                <label>
+                    <input
+                        type="checkbox"
+                        bind:checked={settings.treat_unseen_deck_words_as_support}
+                    />
+                    treat_unseen_deck_words_as_support
+                </label>
+            </div>
+            <div class="row">
+                <label for="lexical_similarity_max">lexical_similarity_max</label>
+                <input
+                    id="lexical_similarity_max"
+                    type="number"
+                    step="0.05"
+                    min="0.1"
+                    max="0.95"
+                    bind:value={settings.lexical_similarity_max}
+                />
+                <label for="semantic_similarity_max">semantic_similarity_max</label>
+                <input
+                    id="semantic_similarity_max"
+                    type="number"
+                    step="0.05"
+                    min="0.1"
+                    max="0.95"
+                    bind:value={settings.semantic_similarity_max}
+                />
+            </div>
+            <div class="row">
                 <button
                     type="button"
                     on:click={() => {
@@ -864,6 +913,22 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                 .map((s) => s.trim())
                                 .filter(Boolean),
                             snapshot_max_items: Number(settings.snapshot_max_items),
+                            allow_new_words: Boolean(settings.allow_new_words),
+                            max_new_words_per_session: Number(
+                                settings.max_new_words_per_session,
+                            ),
+                            force_new_word_every_n_turns: Number(
+                                settings.force_new_word_every_n_turns,
+                            ),
+                            treat_unseen_deck_words_as_support: Boolean(
+                                settings.treat_unseen_deck_words_as_support,
+                            ),
+                            lexical_similarity_max: Number(
+                                settings.lexical_similarity_max,
+                            ),
+                            semantic_similarity_max: Number(
+                                settings.semantic_similarity_max,
+                            ),
                         };
                         bridgeCommand(
                             buildConversationCommand("set_settings", payload),
@@ -1049,10 +1114,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 <strong>Reinforce:</strong>
                 {(lastWrap.reinforce ?? []).join(", ")}
             </div>
-            {#if lastWrap.suggested_cards?.length}
+            {#if lastWrap.reinforced_words?.length}
                 <div>
-                    <strong>Suggested cards:</strong>
-                    {lastWrap.suggested_cards.length}
+                    <strong>Reinforced words:</strong>
+                    {lastWrap.reinforced_words.length}
                 </div>
             {/if}
         </div>
@@ -1087,18 +1152,18 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         </div>
     {/if}
 
-    {#if lastWrap?.suggested_cards?.length}
+    {#if lastWrap?.reinforced_words?.length}
         <div class="row">
             <button
                 type="button"
-                on:click={() => (showApplySuggestions = !showApplySuggestions)}
+                on:click={() => (showApplyReinforced = !showApplyReinforced)}
             >
-                {showApplySuggestions ? "Hide" : "Show"} Add suggested cards to Anki
+                {showApplyReinforced ? "Hide" : "Show"} Add reinforced words to Anki
             </button>
         </div>
-        {#if showApplySuggestions}
+        {#if showApplyReinforced}
             <div class="gloss">
-                {#each lastWrap.suggested_cards as sc}
+                {#each lastWrap.reinforced_words as sc}
                     <div>
                         <strong>{sc.front}</strong>
                         {#if sc.back}
@@ -1112,10 +1177,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                             <option value={d}>{d}</option>
                         {/each}
                     </select>
-                    <button on:click={applySuggestions}>Apply</button>
+                    <button on:click={applyReinforced}>Apply</button>
                 </div>
-                {#if applySuggestionsResult}
-                    <div class="gloss">{applySuggestionsResult}</div>
+                {#if applyReinforcedResult}
+                    <div class="gloss">{applyReinforcedResult}</div>
                 {/if}
             </div>
         {/if}

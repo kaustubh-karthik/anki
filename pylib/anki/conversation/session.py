@@ -103,7 +103,12 @@ class ConversationSession:
         conv_state, constraints, instructions = self.planner.plan_turn(
             self.state, user_input, mastery=self.mastery_cache
         )
-        instructions = replace(instructions, safe_mode=self.settings.safe_mode)
+        instructions = replace(
+            instructions,
+            safe_mode=self.settings.safe_mode,
+            lexical_similarity_max=self.settings.lexical_similarity_max,
+            semantic_similarity_max=self.settings.semantic_similarity_max,
+        )
 
         request = ConversationRequest(
             system_role=self.system_role,
@@ -115,7 +120,10 @@ class ConversationSession:
         response = self.gateway.run_turn(request=request)
 
         if self.settings.allow_new_words:
-            self._observe_new_words(response=response)
+            self._observe_new_words(
+                response=response,
+                allow_new_vocab=not constraints.forbidden.introduce_new_vocab,
+            )
 
         bump_user_used_lexemes(
             telemetry=self.telemetry,
@@ -154,8 +162,16 @@ class ConversationSession:
 
         return TurnResult(user_input=user_input, response=response)
 
-    def _observe_new_words(self, *, response: ConversationResponse) -> None:
+    def _observe_new_words(
+        self, *, response: ConversationResponse, allow_new_vocab: bool
+    ) -> None:
+        if not allow_new_vocab:
+            return
         if len(self.state.new_word_states) >= self.settings.max_new_words_per_session:
+            return
+        if any(
+            nw.current_stage < 4 for nw in self.state.new_word_states.values()
+        ):
             return
         known = self.lexeme_set
         glosses = dict(response.word_glosses)
@@ -178,7 +194,9 @@ class ConversationSession:
                 introduced_turn=self.state.turn_index,
                 current_stage=1,
                 exposure_count=1,
+                last_seen_turn=self.state.turn_index,
             )
+            self.state.turns_since_new_word = 0
             if (
                 len(self.state.new_word_states)
                 >= self.settings.max_new_words_per_session

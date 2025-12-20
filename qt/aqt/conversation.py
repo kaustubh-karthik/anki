@@ -29,12 +29,12 @@ from anki.conversation import (
     PlanReplyRequest,
     TranslateGateway,
     TranslateRequest,
-    apply_suggested_cards,
+    apply_reinforced_cards,
     build_deck_snapshot,
     compute_session_wrap,
     export_conversation_telemetry,
     lookup_gloss,
-    suggestions_from_wrap,
+    reinforced_cards_from_wrap,
 )
 from anki.conversation.events import apply_missed_targets, record_event_from_payload
 from anki.conversation.keys import resolve_openai_api_key
@@ -168,9 +168,9 @@ class ConversationDialog(QDialog):
             elif cmd.startswith("conversation:event:"):
                 payload = json.loads(cmd.split(":", 2)[2])
                 result = self._log_event(payload)
-            elif cmd.startswith("conversation:apply_suggestions:"):
+            elif cmd.startswith("conversation:apply_reinforced:"):
                 payload = json.loads(cmd.split(":", 2)[2])
-                result = self._apply_suggestions(payload)
+                result = self._apply_reinforced(payload)
             elif cmd.startswith("conversation:plan_reply:"):
                 payload = json.loads(cmd.split(":", 2)[2])
                 result = self._plan_reply(payload)
@@ -378,6 +378,8 @@ class ConversationDialog(QDialog):
             provide_suggested_english_intent=True,
             max_corrections=1,
             safe_mode=self._session.settings.safe_mode,
+            lexical_similarity_max=self._session.settings.lexical_similarity_max,
+            semantic_similarity_max=self._session.settings.semantic_similarity_max,
         )
         request = ConversationRequest(
             system_role=SYSTEM_ROLE,
@@ -413,7 +415,10 @@ class ConversationDialog(QDialog):
             return
         response = ConversationResponse.from_json_dict(response_json)
         if self._session.settings.allow_new_words:
-            self._observe_new_words_from_response(response)
+            self._observe_new_words_from_response(
+                response,
+                allow_new_vocab=not constraints.forbidden.introduce_new_vocab,
+            )
         self._session.state.last_assistant_turn_ko = response.assistant_reply_ko
         self._session.state.last_suggested_user_reply_ko = (
             response.suggested_user_reply_ko or ""
@@ -540,6 +545,14 @@ class ConversationDialog(QDialog):
                 "gloss_field_index": settings.gloss_field_index,
                 "gloss_field_names": list(settings.gloss_field_names),
                 "snapshot_max_items": settings.snapshot_max_items,
+                "allow_new_words": settings.allow_new_words,
+                "max_new_words_per_session": settings.max_new_words_per_session,
+                "force_new_word_every_n_turns": settings.force_new_word_every_n_turns,
+                "treat_unseen_deck_words_as_support": (
+                    settings.treat_unseen_deck_words_as_support
+                ),
+                "lexical_similarity_max": settings.lexical_similarity_max,
+                "semantic_similarity_max": settings.semantic_similarity_max,
             },
         }
 
@@ -562,6 +575,23 @@ class ConversationDialog(QDialog):
             "gloss_field_names", list(cur.gloss_field_names)
         )
         snapshot_max_items = payload.get("snapshot_max_items", cur.snapshot_max_items)
+        allow_new_words = payload.get("allow_new_words", cur.allow_new_words)
+        max_new_words_per_session = payload.get(
+            "max_new_words_per_session", cur.max_new_words_per_session
+        )
+        force_new_word_every_n_turns = payload.get(
+            "force_new_word_every_n_turns", cur.force_new_word_every_n_turns
+        )
+        treat_unseen_deck_words_as_support = payload.get(
+            "treat_unseen_deck_words_as_support",
+            cur.treat_unseen_deck_words_as_support,
+        )
+        lexical_similarity_max = payload.get(
+            "lexical_similarity_max", cur.lexical_similarity_max
+        )
+        semantic_similarity_max = payload.get(
+            "semantic_similarity_max", cur.semantic_similarity_max
+        )
 
         if not isinstance(provider, str):
             provider = cur.provider
@@ -605,6 +635,34 @@ class ConversationDialog(QDialog):
             or snapshot_max_items > 50000
         ):
             snapshot_max_items = cur.snapshot_max_items
+        if not isinstance(allow_new_words, bool):
+            allow_new_words = cur.allow_new_words
+        if (
+            not isinstance(max_new_words_per_session, int)
+            or max_new_words_per_session < 0
+            or max_new_words_per_session > 50
+        ):
+            max_new_words_per_session = cur.max_new_words_per_session
+        if (
+            not isinstance(force_new_word_every_n_turns, int)
+            or force_new_word_every_n_turns < 1
+            or force_new_word_every_n_turns > 10
+        ):
+            force_new_word_every_n_turns = cur.force_new_word_every_n_turns
+        if not isinstance(treat_unseen_deck_words_as_support, bool):
+            treat_unseen_deck_words_as_support = (
+                cur.treat_unseen_deck_words_as_support
+            )
+        if not isinstance(lexical_similarity_max, (int, float)):
+            lexical_similarity_max = cur.lexical_similarity_max
+        if not isinstance(semantic_similarity_max, (int, float)):
+            semantic_similarity_max = cur.semantic_similarity_max
+        lexical_similarity_max = float(lexical_similarity_max)
+        semantic_similarity_max = float(semantic_similarity_max)
+        if not (0.0 < lexical_similarity_max < 1.0):
+            lexical_similarity_max = cur.lexical_similarity_max
+        if not (0.0 < semantic_similarity_max < 1.0):
+            semantic_similarity_max = cur.semantic_similarity_max
 
         new_settings = ConversationSettings(
             provider=provider,
@@ -620,8 +678,12 @@ class ConversationDialog(QDialog):
             band_cold_threshold=cur.band_cold_threshold,
             band_fragile_threshold=cur.band_fragile_threshold,
             band_stretch_threshold=cur.band_stretch_threshold,
-            allow_new_words=cur.allow_new_words,
-            max_new_words_per_session=cur.max_new_words_per_session,
+            allow_new_words=allow_new_words,
+            max_new_words_per_session=max_new_words_per_session,
+            force_new_word_every_n_turns=force_new_word_every_n_turns,
+            treat_unseen_deck_words_as_support=treat_unseen_deck_words_as_support,
+            lexical_similarity_max=lexical_similarity_max,
+            semantic_similarity_max=semantic_similarity_max,
         )
         save_conversation_settings(self.mw.col, new_settings)
         return {"ok": True}
@@ -660,6 +722,8 @@ class ConversationDialog(QDialog):
             provide_suggested_english_intent=True,
             max_corrections=1,
             safe_mode=self._session.settings.safe_mode,
+            lexical_similarity_max=self._session.settings.lexical_similarity_max,
+            semantic_similarity_max=self._session.settings.semantic_similarity_max,
         )
         request = ConversationRequest(
             system_role=SYSTEM_ROLE,
@@ -670,7 +734,10 @@ class ConversationDialog(QDialog):
         )
         response = self._session.gateway.run_turn(request=request)
         if self._session.settings.allow_new_words:
-            self._observe_new_words_from_response(response)
+            self._observe_new_words_from_response(
+                response,
+                allow_new_vocab=not constraints.forbidden.introduce_new_vocab,
+            )
         self._session.state.last_assistant_turn_ko = response.assistant_reply_ko
         self._session.state.last_suggested_user_reply_ko = (
             response.suggested_user_reply_ko or ""
@@ -693,12 +760,20 @@ class ConversationDialog(QDialog):
             "planned_targets": planned_targets,
         }
 
-    def _observe_new_words_from_response(self, response: ConversationResponse) -> None:
+    def _observe_new_words_from_response(
+        self, response: ConversationResponse, *, allow_new_vocab: bool
+    ) -> None:
         if self._session is None:
+            return
+        if not allow_new_vocab:
             return
         if (
             len(self._session.state.new_word_states)
             >= self._session.settings.max_new_words_per_session
+        ):
+            return
+        if any(
+            nw.current_stage < 4 for nw in self._session.state.new_word_states.values()
         ):
             return
         known = self._session.lexeme_set
@@ -722,7 +797,9 @@ class ConversationDialog(QDialog):
                 introduced_turn=self._session.state.turn_index,
                 current_stage=1,
                 exposure_count=1,
+                last_seen_turn=self._session.state.turn_index,
             )
+            self._session.state.turns_since_new_word = 0
             if (
                 len(self._session.state.new_word_states)
                 >= self._session.settings.max_new_words_per_session
@@ -791,7 +868,7 @@ class ConversationDialog(QDialog):
         )
         return {"ok": True, "json": exported.to_json()}
 
-    def _apply_suggestions(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def _apply_reinforced(self, payload: dict[str, Any]) -> dict[str, Any]:
         if self._session is None:
             return {"ok": False, "error": "session not started"}
         deck_name = payload.get("deck")
@@ -805,8 +882,8 @@ class ConversationDialog(QDialog):
             mastery=self._session.mastery_cache,
             new_word_states=self._session.state.new_word_states,
         )
-        suggestions = suggestions_from_wrap(wrap, deck_id=int(did))
-        created = apply_suggested_cards(self.mw.col, suggestions)
+        suggestions = reinforced_cards_from_wrap(wrap, deck_id=int(did))
+        created = apply_reinforced_cards(self.mw.col, suggestions)
         return {"ok": True, "created_note_ids": created}
 
     def _plan_reply(self, payload: dict[str, Any]) -> dict[str, Any]:

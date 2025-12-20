@@ -3,17 +3,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from .planner import NewWordState
 from .snapshot import DeckSnapshot
-
-
-@dataclass(frozen=True)
-class SuggestedCard:
-    front: str
-    back: str | None
-    tags: tuple[str, ...] = ()
 
 
 def compute_session_wrap(
@@ -23,10 +14,7 @@ def compute_session_wrap(
     new_word_states: dict[str, NewWordState] | None = None,
     strengths_n: int = 3,
     reinforce_n: int = 2,
-    suggest_n: int = 1,
 ) -> dict[str, object]:
-    lexeme_to_gloss = {item.lexeme: item.gloss for item in snapshot.items}
-
     def weakness_score(lexeme: str) -> float:
         m = mastery.get(f"lexeme:{lexeme}", {})
         dont_know = float(m.get("dont_know", 0))
@@ -63,29 +51,20 @@ def compute_session_wrap(
     strengths = sorted(lexemes, key=score_strength, reverse=True)[:strengths_n]
     reinforce = sorted(lexemes, key=weakness_score, reverse=True)[:reinforce_n]
 
-    suggested_cards: list[dict[str, object]] = []
-    for lexeme in reinforce[:suggest_n]:
-        suggested_cards.append(
-            {
-                "front": lexeme,
-                "back": lexeme_to_gloss.get(lexeme),
-                "tags": ["conv_suggested"],
-            }
-        )
-
+    reinforced_words: list[dict[str, object]] = []
     if new_word_states:
         for lexeme, state in sorted(new_word_states.items()):
             if state.current_stage >= 4:
-                suggested_cards.append(
+                reinforced_words.append(
                     {
                         "front": lexeme,
                         "back": state.gloss,
-                        "tags": ["conv_new_word"],
+                        "tags": ["conv_reinforced"],
                     }
                 )
 
     return {
         "strengths": strengths,
         "reinforce": reinforce,
-        "suggested_cards": suggested_cards,
+        "reinforced_words": reinforced_words,
     }

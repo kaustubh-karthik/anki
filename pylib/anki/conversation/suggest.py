@@ -15,13 +15,13 @@ class CardSuggestion:
     front: str
     back: str | None
     deck_id: int
-    tags: tuple[str, ...] = ("conv_suggested",)
+    tags: tuple[str, ...] = ("conv_reinforced",)
 
 
-def apply_suggested_cards(
+def apply_reinforced_cards(
     col: Collection, suggestions: list[CardSuggestion]
 ) -> list[int]:
-    """Add suggested cards as Basic notes, returning created note ids.
+    """Add reinforced-word cards as Basic notes, returning created note ids.
 
     This is intentionally deterministic and avoids any UI confirmation.
     The caller is responsible for user approval/guardrails.
@@ -46,22 +46,22 @@ def apply_suggested_cards(
     return created
 
 
-def suggestions_from_wrap(
+def reinforced_cards_from_wrap(
     wrap: dict[str, Any], *, deck_id: int
 ) -> list[CardSuggestion]:
     out: list[CardSuggestion] = []
-    for entry in wrap.get("suggested_cards", []) or []:
+    for entry in wrap.get("reinforced_words", []) or []:
         if not isinstance(entry, dict):
             continue
         front = entry.get("front")
         back = entry.get("back")
-        tags = entry.get("tags", ["conv_suggested"])
+        tags = entry.get("tags", ["conv_reinforced"])
         if not isinstance(front, str) or not front:
             continue
         if back is not None and not isinstance(back, str):
             back = None
         if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
-            tags = ["conv_suggested"]
+            tags = ["conv_reinforced"]
         out.append(
             CardSuggestion(front=front, back=back, deck_id=deck_id, tags=tuple(tags))
         )

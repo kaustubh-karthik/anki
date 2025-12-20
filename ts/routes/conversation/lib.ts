@@ -45,7 +45,7 @@ export function buildConversationCommand(
         | "event"
         | "wrap"
         | "export_telemetry"
-        | "apply_suggestions"
+        | "apply_reinforced"
         | "plan_reply"
         | "plan_reply_async"
         | "translate"
@@ -83,9 +83,9 @@ export function buildConversationCommand(
         const json = payload ? JSON.stringify(payload) : "{}";
         return `conversation:export_telemetry:${json}`;
     }
-    if (kind === "apply_suggestions") {
+    if (kind === "apply_reinforced") {
         const json = payload ? JSON.stringify(payload) : "{}";
-        return `conversation:apply_suggestions:${json}`;
+        return `conversation:apply_reinforced:${json}`;
     }
     if (kind === "plan_reply") {
         const json = payload ? JSON.stringify(payload) : "{}";
