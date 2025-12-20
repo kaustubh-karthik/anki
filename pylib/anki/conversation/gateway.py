@@ -9,8 +9,8 @@ from typing import Any
 
 from .contract import check_response_against_request
 from .openai import LLMOutputParseError, OpenAIResponsesJsonClient
-from .types import ConversationRequest, ConversationResponse
-from .validation import validate_tokens
+from .types import ConversationRequest, ConversationResponse, MustTarget
+from .validation import _JOSA_SUFFIXES, tokenize_for_validation, validate_tokens
 
 
 class ConversationProvider(ABC):
@@ -66,22 +66,39 @@ class ConversationGateway:
                 request = _rewrite_request(request, reason=f"invalid_json:{e}")
                 continue
 
-            if response.targets_used:
-                allowed_target_ids = {str(t.id) for t in request.language_constraints.must_target}
-                filtered = tuple(t for t in response.targets_used if t in allowed_target_ids)
-                if filtered != response.targets_used:
-                    response = ConversationResponse(
-                        assistant_reply_ko=response.assistant_reply_ko,
-                        micro_feedback=response.micro_feedback,
-                        suggested_user_intent_en=response.suggested_user_intent_en,
-                        suggested_user_reply_ko=response.suggested_user_reply_ko,
-                        suggested_user_reply_en=response.suggested_user_reply_en,
-                        targets_used=filtered,
-                        unexpected_tokens=response.unexpected_tokens,
-                        word_glosses=response.word_glosses,
-                    )
+            computed_targets_used = _targets_used_in_text(
+                response.assistant_reply_ko, request.language_constraints.must_target
+            )
+            if computed_targets_used != response.targets_used:
+                response = ConversationResponse(
+                    assistant_reply_ko=response.assistant_reply_ko,
+                    micro_feedback=response.micro_feedback,
+                    suggested_user_intent_en=response.suggested_user_intent_en,
+                    suggested_user_reply_ko=response.suggested_user_reply_ko,
+                    suggested_user_reply_en=response.suggested_user_reply_en,
+                    targets_used=computed_targets_used,
+                    unexpected_tokens=response.unexpected_tokens,
+                    word_glosses=response.word_glosses,
+                )
 
             if request.generation_instructions.safe_mode:
+                if request.language_constraints.must_target and not response.targets_used:
+                    if attempt >= self.max_rewrites:
+                        return ConversationResponse(
+                            assistant_reply_ko=response.assistant_reply_ko,
+                            micro_feedback=response.micro_feedback,
+                            suggested_user_intent_en=response.suggested_user_intent_en,
+                            suggested_user_reply_ko=response.suggested_user_reply_ko,
+                            suggested_user_reply_en=response.suggested_user_reply_en,
+                            targets_used=response.targets_used,
+                            unexpected_tokens=response.unexpected_tokens,
+                            word_glosses=response.word_glosses,
+                        )
+                    request = _rewrite_request(
+                        request, reason="missing_targets"
+                    )
+                    continue
+
                 validations = [
                     validate_tokens(response.assistant_reply_ko, request.language_constraints)
                 ]
@@ -97,18 +114,37 @@ class ConversationGateway:
                     )
                 )
                 if unexpected_unique:
-                    if not request.language_constraints.forbidden.introduce_new_vocab:
-                        response = ConversationResponse(
-                            assistant_reply_ko=response.assistant_reply_ko,
-                            micro_feedback=response.micro_feedback,
-                            suggested_user_intent_en=response.suggested_user_intent_en,
-                            suggested_user_reply_ko=response.suggested_user_reply_ko,
-                            suggested_user_reply_en=response.suggested_user_reply_en,
-                            targets_used=response.targets_used,
-                            unexpected_tokens=unexpected_unique,
-                            word_glosses=response.word_glosses,
-                        )
-                    else:
+                    allow_new_vocab = (
+                        not request.language_constraints.forbidden.introduce_new_vocab
+                    )
+                    unexpected_glosses = dict(response.word_glosses)
+                    missing_glosses = [
+                        token
+                        for token in unexpected_unique
+                        if not unexpected_glosses.get(token)
+                    ]
+                    too_many_unexpected = allow_new_vocab and len(unexpected_unique) > 1
+                    if allow_new_vocab and (too_many_unexpected or missing_glosses):
+                        if attempt >= self.max_rewrites:
+                            return ConversationResponse(
+                                assistant_reply_ko=response.assistant_reply_ko,
+                                micro_feedback=response.micro_feedback,
+                                suggested_user_intent_en=response.suggested_user_intent_en,
+                                suggested_user_reply_ko=response.suggested_user_reply_ko,
+                                suggested_user_reply_en=response.suggested_user_reply_en,
+                                targets_used=response.targets_used,
+                                unexpected_tokens=unexpected_unique,
+                                word_glosses=response.word_glosses,
+                            )
+                        reason = "unexpected_tokens"
+                        if too_many_unexpected:
+                            reason = "unexpected_tokens_limit"
+                        elif missing_glosses:
+                            reason = "missing_unexpected_glosses"
+                        request = _rewrite_request(request, reason=reason)
+                        continue
+
+                    if not allow_new_vocab:
                         if attempt >= self.max_rewrites:
                             return ConversationResponse(
                                 assistant_reply_ko=response.assistant_reply_ko,
@@ -125,6 +161,17 @@ class ConversationGateway:
                             reason=f"unexpected_tokens:{','.join(unexpected_unique)}",
                         )
                         continue
+
+                    response = ConversationResponse(
+                        assistant_reply_ko=response.assistant_reply_ko,
+                        micro_feedback=response.micro_feedback,
+                        suggested_user_intent_en=response.suggested_user_intent_en,
+                        suggested_user_reply_ko=response.suggested_user_reply_ko,
+                        suggested_user_reply_en=response.suggested_user_reply_en,
+                        targets_used=response.targets_used,
+                        unexpected_tokens=unexpected_unique,
+                        word_glosses=response.word_glosses,
+                    )
 
             violation = check_response_against_request(
                 request=request, response=response
@@ -220,3 +267,33 @@ def _fallback_non_repeating_suggested_reply(*, prev: str, current: str) -> tuple
     ko = (current or "").strip() or "네."
     en = "Yes." if norm(ko) == norm("네.") else "Okay."
     return ko, en
+
+
+def _targets_used_in_text(
+    text: str, must_targets: tuple[MustTarget, ...]
+) -> tuple[str, ...]:
+    tokens = tokenize_for_validation(text)
+    used: list[str] = []
+    for target in must_targets:
+        surface_forms = tuple(getattr(target, "surface_forms", ()) or ())
+        if not surface_forms:
+            continue
+        if getattr(target, "type", "") == "collocation":
+            if all(_has_surface_form(tokens, sf) for sf in surface_forms):
+                used.append(str(getattr(target, "id")))
+        else:
+            if any(_has_surface_form(tokens, sf) for sf in surface_forms):
+                used.append(str(getattr(target, "id")))
+    return tuple(used)
+
+
+def _has_surface_form(tokens: list[str], surface_form: str) -> bool:
+    for token in tokens:
+        if token == surface_form:
+            return True
+        for suffix in _JOSA_SUFFIXES:
+            if token.endswith(suffix) and len(token) > len(suffix):
+                stem = token[: -len(suffix)]
+                if stem == surface_form:
+                    return True
+    return False

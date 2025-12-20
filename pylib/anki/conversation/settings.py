@@ -21,7 +21,7 @@ class ConversationSettings:
     model: str = "gpt-4o-mini"  # Fast, cheap, widely available
     safe_mode: bool = True
     redaction_level: RedactionLevel = RedactionLevel.minimal
-    max_rewrites: int = 0
+    max_rewrites: int = 2
     lexeme_field_index: int = 0
     lexeme_field_names: tuple[str, ...] = ()
     gloss_field_index: int | None = 1
