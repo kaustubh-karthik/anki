@@ -30,7 +30,7 @@ from .plan_reply import (
     PlanReplyRequest,
 )
 from .planner import ConversationPlanner
-from .prompts import SYSTEM_ROLE
+from .prompts import PLAN_REPLY_SYSTEM_ROLE, SYSTEM_ROLE
 from .redaction import redact_text
 from .session import ConversationSession
 from .settings import (
@@ -66,18 +66,12 @@ class FakeConversationProvider(ConversationProvider):
             if isinstance(item.get("word_glosses"), dict):
                 return item
             assistant_reply_ko = item.get("assistant_reply_ko", "")
-            follow_up_question_ko = item.get("follow_up_question_ko", "")
-            if not isinstance(assistant_reply_ko, str) or not isinstance(
-                follow_up_question_ko, str
-            ):
+            if not isinstance(assistant_reply_ko, str):
                 return item
             allowed = set(request.language_constraints.allowed_support)
             for mt in request.language_constraints.must_target:
                 allowed.update(mt.surface_forms)
-            tokens = set(
-                tokenize_for_validation(assistant_reply_ko)
-                + tokenize_for_validation(follow_up_question_ko)
-            )
+            tokens = set(tokenize_for_validation(assistant_reply_ko))
             glosses = {t: "(gloss unavailable offline)" for t in tokens if t in allowed}
             out = dict(item)
             out["word_glosses"] = glosses
@@ -86,7 +80,6 @@ class FakeConversationProvider(ConversationProvider):
         if self._i >= len(self._scripted):
             return {
                 "assistant_reply_ko": "네, 알겠어요.",
-                "follow_up_question_ko": "다음은 뭐예요?",
                 "micro_feedback": {"type": "none", "content_ko": "", "content_en": ""},
                 "suggested_user_intent_en": None,
                 "targets_used": [],
@@ -516,7 +509,6 @@ def _cmd_plan_reply(args: argparse.Namespace) -> None:
             conversation_goal=instructions.conversation_goal,
             tone=instructions.tone,
             register=instructions.register,
-            provide_follow_up_question=instructions.provide_follow_up_question,
             provide_micro_feedback=instructions.provide_micro_feedback,
             provide_suggested_english_intent=instructions.provide_suggested_english_intent,
             max_corrections=instructions.max_corrections,
@@ -543,7 +535,7 @@ def _cmd_plan_reply(args: argparse.Namespace) -> None:
 
         gateway = PlanReplyGateway(provider=provider)  # type: ignore[arg-type]
         req = PlanReplyRequest(
-            system_role=SYSTEM_ROLE,
+            system_role=PLAN_REPLY_SYSTEM_ROLE,
             conversation_state=conv_state,
             intent_en=args.intent_en,
             language_constraints=constraints,

@@ -144,7 +144,6 @@ class ConversationSession:
             constraints=constraints,
             user_input=user_input,
             assistant_reply_ko=response.assistant_reply_ko,
-            follow_up_question_ko=response.follow_up_question_ko,
         )
         apply_missed_targets(
             telemetry=self.telemetry,
@@ -161,7 +160,6 @@ class ConversationSession:
         glosses = dict(response.word_glosses)
         tokens = set(
             tokenize_for_validation(response.assistant_reply_ko)
-            + tokenize_for_validation(response.follow_up_question_ko)
         )
         for token in sorted(tokens):
             if token in known:

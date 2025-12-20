@@ -47,7 +47,6 @@ class GenerationInstructions:
     conversation_goal: str = "Continue the conversation naturally and keep it going."
     tone: str = "friendly"
     register: str = "해요체"
-    provide_follow_up_question: bool = True
     provide_micro_feedback: bool = True
     provide_suggested_english_intent: bool = True
     max_corrections: int = 1
@@ -75,52 +74,51 @@ class ConversationRequest:
     language_constraints: LanguageConstraints
     generation_instructions: GenerationInstructions
 
-    def to_json_dict(self) -> JsonDict:
-        return {
-            "system_role": self.system_role,
-            "conversation_state": {
-                "summary": self.conversation_state.summary,
-                "last_assistant_turn_ko": self.conversation_state.last_assistant_turn_ko,
-                "last_user_turn_ko": self.conversation_state.last_user_turn_ko,
-            },
-            "user_input": {
-                "text_ko": self.user_input.text_ko,
-                "confidence": self.user_input.confidence,
-            },
-            "language_constraints": {
-                "must_target": [
-                    {
-                        "id": str(item.id),
-                        "type": item.type,
-                        "surface_forms": list(item.surface_forms),
-                        "priority": item.priority,
-                        "scaffolding_required": item.scaffolding_required,
-                        "exposure_stage": item.exposure_stage,
-                        "gloss": item.gloss,
-                    }
-                    for item in self.language_constraints.must_target
-                ],
-                "allowed_support": list(self.language_constraints.allowed_support),
-                "allowed_grammar": [
-                    {"id": str(item.id), "pattern": item.pattern}
-                    for item in self.language_constraints.allowed_grammar
-                ],
-                "forbidden": {
-                    "introduce_new_vocab": self.language_constraints.forbidden.introduce_new_vocab,
-                    "sentence_length_max": self.language_constraints.forbidden.sentence_length_max,
-                },
-            },
-            "generation_instructions": {
-                "conversation_goal": self.generation_instructions.conversation_goal,
-                "tone": self.generation_instructions.tone,
-                "register": self.generation_instructions.register,
-                "provide_follow_up_question": self.generation_instructions.provide_follow_up_question,
-                "provide_micro_feedback": self.generation_instructions.provide_micro_feedback,
-                "provide_suggested_english_intent": self.generation_instructions.provide_suggested_english_intent,
-                "max_corrections": self.generation_instructions.max_corrections,
-                "safe_mode": self.generation_instructions.safe_mode,
-            },
-        }
+    def to_prompt_text(self) -> str:
+        def dedupe(items: list[str]) -> list[str]:
+            seen: set[str] = set()
+            out: list[str] = []
+            for item in items:
+                if item in seen:
+                    continue
+                seen.add(item)
+                out.append(item)
+            return out
+
+        allowed_support = list(self.language_constraints.allowed_support)
+        target_words: list[str] = []
+        for t in self.language_constraints.must_target:
+            target_words.extend(list(t.surface_forms))
+
+        allowed_content_words = dedupe(allowed_support + target_words)
+        target_words = dedupe(target_words)
+
+        allowed_str = ", ".join(allowed_content_words)
+        target_str = ", ".join(target_words)
+
+        targets_lines: list[str] = []
+        for t in self.language_constraints.must_target:
+            forms = ", ".join(t.surface_forms)
+            targets_lines.append(f"- {t.id}: {{{forms}}}")
+
+        new_vocab_allowed = not self.language_constraints.forbidden.introduce_new_vocab
+        max_len = self.language_constraints.forbidden.sentence_length_max
+
+        last_assistant = (self.conversation_state.last_assistant_turn_ko or "").strip()
+        user_text = (self.user_input.text_ko or "").strip()
+
+        return (
+            f"Last assistant (KO): {last_assistant}\n"
+            f"User (KO): {user_text}\n\n"
+            f"For content words (nouns/verbs/adjectives/adverbs), use ONLY these Korean words: "
+            f"{{{allowed_str}}}\n"
+            f"Prioritize using these target words when natural: {{{target_str}}}\n"
+            f"New vocab allowed: {str(new_vocab_allowed).lower()}\n"
+            f"Max tokens (approx): {max_len}\n\n"
+            "Targets (use IDs in targets_used if used):\n"
+            + ("\n".join(targets_lines) if targets_lines else "- (none)")
+            + "\n\nReturn ONLY the JSON object."
+        )
 
 
 MicroFeedbackType = Literal["none", "correction", "praise"]
@@ -135,7 +133,6 @@ class MicroFeedbackDict(TypedDict):
 @dataclass(frozen=True)
 class ConversationResponse:
     assistant_reply_ko: str
-    follow_up_question_ko: str
     micro_feedback: MicroFeedbackDict | None = None
     suggested_user_intent_en: str | None = None
     targets_used: tuple[str, ...] = ()
@@ -147,9 +144,6 @@ class ConversationResponse:
         if not isinstance(data, dict):
             raise ValueError("response must be a JSON object")
         assistant_reply_ko = _required_str(data, "assistant_reply_ko")
-        follow_up_question_ko = data.get("follow_up_question_ko", "")
-        if not isinstance(follow_up_question_ko, str):
-            raise ValueError("follow_up_question_ko must be a string")
         micro_feedback = data.get("micro_feedback")
         if micro_feedback is not None:
             if not isinstance(micro_feedback, dict):
@@ -203,7 +197,6 @@ class ConversationResponse:
 
         return cls(
             assistant_reply_ko=assistant_reply_ko,
-            follow_up_question_ko=follow_up_question_ko,
             micro_feedback=micro_feedback,
             suggested_user_intent_en=suggested_user_intent_en,
             targets_used=tuple(targets_used),
@@ -214,7 +207,6 @@ class ConversationResponse:
     def to_json_dict(self) -> JsonDict:
         return {
             "assistant_reply_ko": self.assistant_reply_ko,
-            "follow_up_question_ko": self.follow_up_question_ko,
             "micro_feedback": self.micro_feedback,
             "suggested_user_intent_en": self.suggested_user_intent_en,
             "targets_used": list(self.targets_used),

@@ -25,43 +25,50 @@ class PlanReplyRequest:
     language_constraints: LanguageConstraints
     generation_instructions: GenerationInstructions
 
-    def to_json_dict(self) -> dict[str, Any]:
-        return {
-            "conversation_state": {
-                "summary": self.conversation_state.summary,
-                "last_assistant_turn_ko": self.conversation_state.last_assistant_turn_ko,
-                "last_user_turn_ko": self.conversation_state.last_user_turn_ko,
-            },
-            "intent_en": self.intent_en,
-            "language_constraints": {
-                "must_target": [
-                    {
-                        "id": str(item.id),
-                        "type": item.type,
-                        "surface_forms": list(item.surface_forms),
-                        "priority": item.priority,
-                        "scaffolding_required": item.scaffolding_required,
-                        "exposure_stage": item.exposure_stage,
-                        "gloss": item.gloss,
-                    }
-                    for item in self.language_constraints.must_target
-                ],
-                "allowed_support": list(self.language_constraints.allowed_support),
-                "allowed_grammar": [
-                    {"id": str(item.id), "pattern": item.pattern}
-                    for item in self.language_constraints.allowed_grammar
-                ],
-                "forbidden": {
-                    "introduce_new_vocab": self.language_constraints.forbidden.introduce_new_vocab,
-                    "sentence_length_max": self.language_constraints.forbidden.sentence_length_max,
-                },
-            },
-            "generation_instructions": {
-                "tone": self.generation_instructions.tone,
-                "register": self.generation_instructions.register,
-                "safe_mode": self.generation_instructions.safe_mode,
-            },
-        }
+    def to_prompt_text(self) -> str:
+        def dedupe(items: list[str]) -> list[str]:
+            seen: set[str] = set()
+            out: list[str] = []
+            for item in items:
+                if item in seen:
+                    continue
+                seen.add(item)
+                out.append(item)
+            return out
+
+        allowed_support = list(self.language_constraints.allowed_support)
+        target_words: list[str] = []
+        for t in self.language_constraints.must_target:
+            target_words.extend(list(t.surface_forms))
+
+        allowed_content_words = dedupe(allowed_support + target_words)
+        target_words = dedupe(target_words)
+
+        allowed_str = ", ".join(allowed_content_words)
+        target_str = ", ".join(target_words)
+
+        targets_lines: list[str] = []
+        for t in self.language_constraints.must_target:
+            forms = ", ".join(t.surface_forms)
+            targets_lines.append(f"- {t.id}: {{{forms}}}")
+
+        new_vocab_allowed = not self.language_constraints.forbidden.introduce_new_vocab
+        max_len = self.language_constraints.forbidden.sentence_length_max
+
+        last_assistant = (self.conversation_state.last_assistant_turn_ko or "").strip()
+        intent = (self.intent_en or "").strip()
+
+        return (
+            f"Last assistant (KO): {last_assistant}\n"
+            f"Intent (EN): {intent}\n\n"
+            f"For content words, use ONLY these Korean words: {{{allowed_str}}}\n"
+            f"Prioritize using these target words when natural: {{{target_str}}}\n"
+            f"New vocab allowed: {str(new_vocab_allowed).lower()}\n"
+            f"Max tokens (approx): {max_len}\n\n"
+            "Targets (use IDs in notes if relevant):\n"
+            + ("\n".join(targets_lines) if targets_lines else "- (none)")
+            + "\n\nReturn ONLY the JSON object."
+        )
 
 
 @dataclass(frozen=True)
@@ -139,7 +146,7 @@ class PlanReplyGateway:
             if request.generation_instructions.safe_mode:
                 unexpected: list[str] = []
                 for option in response.options_ko:
-                    v = validate_tokens(option, "", request.language_constraints)
+                    v = validate_tokens(option, request.language_constraints)
                     unexpected.extend(v.unexpected_tokens)
                 unexpected_unique = tuple(dict.fromkeys(unexpected))
                 if unexpected_unique:
@@ -242,15 +249,6 @@ class OpenAIPlanReplyProvider(PlanReplyProvider):
         )
 
     def generate(self, *, request: PlanReplyRequest) -> dict[str, Any]:
-        system_role = (
-            request.system_role
-            + "\n\n"
-            + "Task: You are helping a learner reply in Korean.\n"
-            + "- Read intent_en and produce 2–3 natural Korean reply options that express that intent.\n"
-            + "- Respect language_constraints when possible; if you must violate them, still produce options and list violating tokens in unexpected_tokens.\n"
-            + "- Keep each option short and natural; do not number options.\n"
-            + 'Return ONLY JSON exactly like {"options_ko":[...], "notes_en": null, "unexpected_tokens": []}.'
-        )
-        return self._client.request_json(
-            system_role=system_role, user_json=request.to_json_dict()
+        return self._client.request_json_with_user_text(
+            system_role=request.system_role, user_text=request.to_prompt_text()
         )

@@ -6,7 +6,6 @@ export type ConversationTurnResponse =
         ok: true;
         response: {
             assistant_reply_ko: string;
-            follow_up_question_ko: string;
             micro_feedback?: { type: "none" | "correction" | "praise"; content_ko: string; content_en: string } | null;
             suggested_user_intent_en?: string | null;
             targets_used?: string[];

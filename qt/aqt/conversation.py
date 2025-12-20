@@ -39,7 +39,7 @@ from anki.conversation import (
 from anki.conversation.events import apply_missed_targets, record_event_from_payload
 from anki.conversation.keys import resolve_openai_api_key
 from anki.conversation.planner import BASE_ALLOWED_SUPPORT, NewWordState
-from anki.conversation.prompts import SYSTEM_ROLE
+from anki.conversation.prompts import PLAN_REPLY_SYSTEM_ROLE, SYSTEM_ROLE, TRANSLATE_SYSTEM_ROLE
 from anki.conversation.redaction import redact_text
 from anki.conversation.settings import (
     ConversationSettings,
@@ -360,7 +360,6 @@ class ConversationDialog(QDialog):
             conversation_goal=instructions.conversation_goal,
             tone=instructions.tone,
             register=instructions.register,
-            provide_follow_up_question=False,
             provide_micro_feedback=True,
             provide_suggested_english_intent=True,
             max_corrections=1,
@@ -406,7 +405,6 @@ class ConversationDialog(QDialog):
             constraints=constraints,
             user_input=user_input,
             assistant_reply_ko=response.assistant_reply_ko,
-            follow_up_question_ko=response.follow_up_question_ko,
         )
         apply_missed_targets(
             telemetry=self._session.telemetry,
@@ -631,7 +629,6 @@ class ConversationDialog(QDialog):
             conversation_goal=instructions.conversation_goal,
             tone=instructions.tone,
             register=instructions.register,
-            provide_follow_up_question=False,
             provide_micro_feedback=True,
             provide_suggested_english_intent=True,
             max_corrections=1,
@@ -653,7 +650,6 @@ class ConversationDialog(QDialog):
             constraints=constraints,
             user_input=user_input,
             assistant_reply_ko=response.assistant_reply_ko,
-            follow_up_question_ko=response.follow_up_question_ko,
         )
         apply_missed_targets(
             telemetry=self._session.telemetry,
@@ -678,7 +674,6 @@ class ConversationDialog(QDialog):
         glosses = dict(response.word_glosses)
         tokens = set(
             tokenize_for_validation(response.assistant_reply_ko)
-            + tokenize_for_validation(response.follow_up_question_ko)
         )
         for token in sorted(tokens):
             if token in known:
@@ -811,7 +806,7 @@ class ConversationDialog(QDialog):
             safe_mode=self._session.settings.safe_mode,
         )
         req = PlanReplyRequest(
-            system_role=SYSTEM_ROLE,
+            system_role=PLAN_REPLY_SYSTEM_ROLE,
             conversation_state=conv_state,
             intent_en=intent,
             language_constraints=constraints,
@@ -841,7 +836,7 @@ class ConversationDialog(QDialog):
             return {"ok": False, "error": "translate provider not configured"}
 
         gateway = TranslateGateway(provider=provider)  # type: ignore[arg-type]
-        req = TranslateRequest(system_role=SYSTEM_ROLE, text_ko=text)
+        req = TranslateRequest(system_role=TRANSLATE_SYSTEM_ROLE, text_ko=text)
         resp = gateway.run(request=req)
         return {"ok": True, "translation_en": resp.translation_en}
 

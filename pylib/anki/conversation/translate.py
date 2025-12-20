@@ -59,13 +59,8 @@ class OpenAITranslateProvider(TranslateProvider):
         )
 
     def translate(self, *, request: TranslateRequest) -> dict[str, Any]:
-        system_role = (
-            request.system_role
-            + "\n\n"
-            + 'Task: Translate Korean to natural English. Return ONLY JSON like {"translation_en":"..."}.'
-        )
         return self._client.request_json(
-            system_role=system_role, user_json=request.to_json_dict()
+            system_role=request.system_role, user_json=request.to_json_dict()
         )
 
 

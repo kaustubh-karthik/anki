@@ -36,8 +36,8 @@ class OpenAIConversationProvider(ConversationProvider):
         )
 
     def generate(self, *, request: ConversationRequest) -> dict[str, Any]:
-        return self._client.request_json(
-            system_role=request.system_role, user_json=request.to_json_dict()
+        return self._client.request_json_with_user_text(
+            system_role=request.system_role, user_text=request.to_prompt_text()
         )
 
 
@@ -66,31 +66,14 @@ class ConversationGateway:
                 request = _rewrite_request(request, reason=f"invalid_json:{e}")
                 continue
 
-            if (
-                not request.generation_instructions.provide_follow_up_question
-                and response.follow_up_question_ko
-            ):
-                response = ConversationResponse(
-                    assistant_reply_ko=response.assistant_reply_ko,
-                    follow_up_question_ko="",
-                    micro_feedback=response.micro_feedback,
-                    suggested_user_intent_en=response.suggested_user_intent_en,
-                    targets_used=response.targets_used,
-                    unexpected_tokens=response.unexpected_tokens,
-                    word_glosses=response.word_glosses,
-                )
-
             if request.generation_instructions.safe_mode:
                 validation = validate_tokens(
-                    response.assistant_reply_ko,
-                    response.follow_up_question_ko,
-                    request.language_constraints,
+                    response.assistant_reply_ko, request.language_constraints
                 )
                 if not validation.ok:
                     if not request.language_constraints.forbidden.introduce_new_vocab:
                         response = ConversationResponse(
                             assistant_reply_ko=response.assistant_reply_ko,
-                            follow_up_question_ko=response.follow_up_question_ko,
                             micro_feedback=response.micro_feedback,
                             suggested_user_intent_en=response.suggested_user_intent_en,
                             targets_used=response.targets_used,
@@ -101,7 +84,6 @@ class ConversationGateway:
                         if attempt >= self.max_rewrites:
                             return ConversationResponse(
                                 assistant_reply_ko=response.assistant_reply_ko,
-                                follow_up_question_ko=response.follow_up_question_ko,
                                 micro_feedback=response.micro_feedback,
                                 suggested_user_intent_en=response.suggested_user_intent_en,
                                 targets_used=response.targets_used,

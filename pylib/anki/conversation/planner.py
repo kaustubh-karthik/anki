@@ -383,7 +383,6 @@ class ConversationPlanner:
         instructions = GenerationInstructions(
             register="해요체",
             safe_mode=True,
-            provide_follow_up_question=False,
             provide_micro_feedback=True,
             provide_suggested_english_intent=True,
             max_corrections=1,
@@ -407,13 +406,9 @@ class ConversationPlanner:
         constraints: LanguageConstraints,
         user_input: UserInput,
         assistant_reply_ko: str,
-        follow_up_question_ko: str,
     ) -> list[str]:
         user_tokens = set(tokenize_for_validation(user_input.text_ko))
-        assistant_tokens = set(
-            tokenize_for_validation(assistant_reply_ko)
-            + tokenize_for_validation(follow_up_question_ko)
-        )
+        assistant_tokens = set(tokenize_for_validation(assistant_reply_ko))
         missed: list[str] = []
         successful_new_words: set[str] = set()
         for target in constraints.must_target:

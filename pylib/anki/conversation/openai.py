@@ -107,8 +107,8 @@ class OpenAIResponsesJsonClient:
                 self._client.close()
                 self._client = None
 
-    def request_json(
-        self, *, system_role: str, user_json: dict[str, Any]
+    def request_json_with_user_text(
+        self, *, system_role: str, user_text: str
     ) -> dict[str, Any]:
         # Reuse a single requests.Session() across calls to avoid repeated TLS handshakes.
         with self._lock:
@@ -129,7 +129,7 @@ class OpenAIResponsesJsonClient:
                     {"role": "system", "content": system_role},
                     {
                         "role": "user",
-                        "content": json.dumps(user_json, ensure_ascii=False),
+                        "content": user_text,
                     },
                 ],
                 "text": {"format": {"type": "json_object"}, "verbosity": "low"},
@@ -144,7 +144,7 @@ class OpenAIResponsesJsonClient:
                     {"role": "system", "content": system_role},
                     {
                         "role": "user",
-                        "content": json.dumps(user_json, ensure_ascii=False),
+                        "content": user_text,
                     },
                 ],
                 "response_format": {"type": "json_object"},
@@ -281,6 +281,10 @@ class OpenAIResponsesJsonClient:
         if not isinstance(parsed, dict):
             raise LLMOutputParseError("OpenAI returned non-object JSON")
         return parsed
+
+    def request_json(self, *, system_role: str, user_json: dict[str, Any]) -> dict[str, Any]:
+        user_text = json.dumps(user_json, ensure_ascii=False, separators=(",", ":"))
+        return self.request_json_with_user_text(system_role=system_role, user_text=user_text)
 
     def __del__(self) -> None:
         try:

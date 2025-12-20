@@ -180,7 +180,6 @@ def test_cli_run_is_fully_automatable_and_writes_db(tmp_path) -> None:
                     # first response violates budget -> triggers rewrite
                     {
                         "assistant_reply_ko": "고양이 있어요.",
-                        "follow_up_question_ko": "뭐가 있어요?",
                         "micro_feedback": {
                             "type": "none",
                             "content_ko": "",
@@ -193,7 +192,6 @@ def test_cli_run_is_fully_automatable_and_writes_db(tmp_path) -> None:
                     # second response stays in budget
                     {
                         "assistant_reply_ko": "의자 있어요.",
-                        "follow_up_question_ko": "뭐가 있어요?",
                         "micro_feedback": {
                             "type": "none",
                             "content_ko": "",
@@ -277,8 +275,7 @@ def test_conversation_session_controller_runs_without_ui() -> None:
         def generate(self, *, request: ConversationRequest) -> dict[str, object]:
             self.calls += 1
             return {
-                "assistant_reply_ko": "의자 있어요.",
-                "follow_up_question_ko": "뭐예요?",
+                "assistant_reply_ko": "의자 있어요. 뭐예요?",
                 "micro_feedback": {"type": "none", "content_ko": "", "content_en": ""},
                 "suggested_user_intent_en": None,
                 "targets_used": ["lexeme:의자"],
@@ -599,8 +596,7 @@ class _ScriptedProvider(ConversationProvider):
         self.calls += 1
         if self.calls == 1:
             return {
-                "assistant_reply_ko": "고양이 있어요.",
-                "follow_up_question_ko": "뭐가 있어요?",
+                "assistant_reply_ko": "고양이 있어요. 뭐가 있어요?",
                 "micro_feedback": {"type": "none", "content_ko": "", "content_en": ""},
                 "suggested_user_intent_en": None,
                 "targets_used": [],
@@ -608,8 +604,7 @@ class _ScriptedProvider(ConversationProvider):
                 "word_glosses": {"고양이": "cat", "있어요": "there is", "뭐가": "what"},
             }
         return {
-            "assistant_reply_ko": "의자 있어요.",
-            "follow_up_question_ko": "뭐가 있어요?",
+            "assistant_reply_ko": "의자 있어요. 뭐가 있어요?",
             "micro_feedback": {"type": "none", "content_ko": "", "content_en": ""},
             "suggested_user_intent_en": None,
             "targets_used": [],
@@ -652,8 +647,7 @@ def test_gateway_preserves_word_glosses_on_unexpected_tokens_fallback() -> None:
     class _UnexpectedTokenProvider(ConversationProvider):
         def generate(self, *, request: ConversationRequest) -> dict:
             return {
-                "assistant_reply_ko": "고양이 있어요.",
-                "follow_up_question_ko": "뭐예요?",
+                "assistant_reply_ko": "고양이 있어요. 뭐예요?",
                 "micro_feedback": {"type": "none", "content_ko": "", "content_en": ""},
                 "suggested_user_intent_en": None,
                 "targets_used": [],
@@ -692,8 +686,7 @@ def test_gateway_allows_unexpected_tokens_when_new_vocab_allowed() -> None:
         def generate(self, *, request: ConversationRequest) -> dict:
             self.calls += 1
             return {
-                "assistant_reply_ko": "고양이 있어요.",
-                "follow_up_question_ko": "뭐예요?",
+                "assistant_reply_ko": "고양이 있어요. 뭐예요?",
                 "micro_feedback": {"type": "none", "content_ko": "", "content_en": ""},
                 "suggested_user_intent_en": None,
                 "targets_used": [],
@@ -731,7 +724,6 @@ class _LongReplyProvider(ConversationProvider):
         # produce many tokens to exceed sentence_length_max
         return {
             "assistant_reply_ko": "의자 " * 100,
-            "follow_up_question_ko": "뭐예요?",
             "micro_feedback": {"type": "none", "content_ko": "", "content_en": ""},
             "suggested_user_intent_en": None,
             "targets_used": [],
@@ -952,8 +944,7 @@ def test_hover_does_not_create_mastery_signal(tmp_path) -> None:
             json.dumps(
                 [
                     {
-                        "assistant_reply_ko": "의자 있어요.",
-                        "follow_up_question_ko": "뭐가 있어요?",
+                        "assistant_reply_ko": "의자 있어요. 뭐가 있어요?",
                         "micro_feedback": {
                             "type": "none",
                             "content_ko": "",
@@ -1160,7 +1151,6 @@ def test_planner_micro_spacing_reuses_due_targets() -> None:
             constraints=c1,
             user_input=UserInput(text_ko="응"),
             assistant_reply_ko="네.",
-            follow_up_question_ko="뭐예요?",
         )
 
         # Turn 2/3: other targets
@@ -1176,7 +1166,6 @@ def test_planner_micro_spacing_reuses_due_targets() -> None:
             constraints=c2,
             user_input=UserInput(text_ko="응"),
             assistant_reply_ko="네.",
-            follow_up_question_ko="뭐예요?",
         )
         _, c3, _ = planner.plan_turn(
             state,
@@ -1215,7 +1204,6 @@ def test_observe_turn_returns_missed_targets() -> None:
             constraints=constraints,
             user_input=UserInput(text_ko="응"),
             assistant_reply_ko="네.",
-            follow_up_question_ko="뭐예요?",
         )
         assert any(m.startswith("lexeme:") for m in missed)
     finally:
@@ -1365,7 +1353,6 @@ def test_collocation_requires_all_tokens_to_count_used() -> None:
             constraints=c1,
             user_input=UserInput(text_ko="응"),
             assistant_reply_ko=f"{colloc1.surface_forms[0]}",
-            follow_up_question_ko="",
         )
         assert str(colloc1.id) in missed1
 
@@ -1380,7 +1367,6 @@ def test_collocation_requires_all_tokens_to_count_used() -> None:
             constraints=c2,
             user_input=UserInput(text_ko="응"),
             assistant_reply_ko=both,
-            follow_up_question_ko="",
         )
         assert str(colloc2.id) not in missed2
     finally:
@@ -1458,7 +1444,6 @@ def test_gateway_rewrites_on_llm_output_parse_error() -> None:
                 raise LLMOutputParseError("invalid JSON")
             return {
                 "assistant_reply_ko": "네.",
-                "follow_up_question_ko": "뭐예요?",
                 "micro_feedback": {"type": "none", "content_ko": "", "content_en": ""},
                 "suggested_user_intent_en": None,
                 "targets_used": [],
@@ -1634,7 +1619,6 @@ def test_new_word_pipeline_graduates_and_shows_in_wrap() -> None:
         constraints=constraints,
         user_input=UserInput(text_ko="신발 좋아요."),
         assistant_reply_ko="신발 있어요.",
-        follow_up_question_ko="신발 있어요?",
     )
     assert state.new_word_states["신발"].current_stage == 4
     wrap = compute_session_wrap(

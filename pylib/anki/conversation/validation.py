@@ -106,7 +106,6 @@ def tokenize_for_validation(text: str) -> list[str]:
 
 def validate_tokens(
     assistant_reply_ko: str,
-    follow_up_question_ko: str,
     constraints: LanguageConstraints,
     *,
     always_allowed: tuple[str, ...] = (
@@ -128,9 +127,7 @@ def validate_tokens(
     # Also allow basic Korean vocabulary (particles, common words)
     allowed.update(_BASE_ALLOWED_SUPPORT)
 
-    tokens = tokenize_for_validation(assistant_reply_ko) + tokenize_for_validation(
-        follow_up_question_ko
-    )
+    tokens = tokenize_for_validation(assistant_reply_ko)
 
     unexpected = []
     for token in tokens:

@@ -48,12 +48,8 @@ class LocalConversationProvider(ConversationProvider):
         statement = " ".join(reply_tokens) + "."
         question = pick_allowed(("뭐예요", "뭐"), "뭐예요") + "?"
         assistant_reply_ko = f"{statement} {question}"
-        follow_up_question_ko = ""
 
-        used_tokens = set(
-            tokenize_for_validation(assistant_reply_ko)
-            + tokenize_for_validation(follow_up_question_ko)
-        )
+        used_tokens = set(tokenize_for_validation(assistant_reply_ko))
         targets_used: list[str] = []
         for mt in request.language_constraints.must_target:
             if all(token in used_tokens for token in mt.surface_forms):
@@ -72,7 +68,6 @@ class LocalConversationProvider(ConversationProvider):
 
         return {
             "assistant_reply_ko": assistant_reply_ko,
-            "follow_up_question_ko": follow_up_question_ko,
             "micro_feedback": {"type": "none", "content_ko": "", "content_en": ""},
             "suggested_user_intent_en": None,
             "targets_used": targets_used,
