@@ -34,11 +34,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         Array<{ id: string; type: string; surface_forms: string[]; gloss?: string | null }>
     > = {};
     let showHintByTurn: Record<number, boolean> = {};
-    let showExplainByTurn: Record<number, boolean> = {};
     let showTranslateByTurn: Record<number, boolean> = {};
     let translationByTurn: Record<number, string> = {};
     let error: string | null = null;
-    let intentEn = "";
+    let planReplyDraftKo = "";
     let replyOptions: string[] = [];
     let applyDeck = "";
     let showApplySuggestions = false;
@@ -402,7 +401,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 debugVocabByTurn = {};
                 plannedTargetsByTurn = {};
                 showHintByTurn = {};
-                showExplainByTurn = {};
                 showTranslateByTurn = {};
                 translationByTurn = {};
             },
@@ -646,6 +644,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             resolvedGlossesByTurn = {};
             debugVocabByTurn = {};
             plannedTargetsByTurn = {};
+            showHintByTurn = {};
+            showTranslateByTurn = {};
+            translationByTurn = {};
             tooltip = null;
         });
     }
@@ -654,8 +655,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         void (async () => {
             error = null;
             replyOptions = [];
-            const intent = intentEn.trim();
-            if (!intent) {
+            const draftKo = planReplyDraftKo.trim();
+            if (!draftKo) {
                 return;
             }
             if (!bridgeCommandsAvailable()) {
@@ -668,7 +669,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             inFlight = true;
             try {
                 const startResp: any = await bridgeCommandPromise(
-                    buildConversationCommand("plan_reply_async", { intent_en: intent }),
+                    buildConversationCommand("plan_reply_async", { draft_ko: draftKo }),
                 );
                 if (!startResp?.ok) {
                     error = startResp?.error ?? "plan-reply failed.";
@@ -688,6 +689,13 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
     function usePlannedReply(textKo: string): void {
         message = textKo;
+    }
+
+    function useSuggestedReply(turn: Turn): void {
+        const suggested = turn.assistant.suggested_user_reply_ko;
+        if (typeof suggested === "string" && suggested.trim()) {
+            message = suggested;
+        }
     }
 
     let applySuggestionsResult: string | null = null;
@@ -895,6 +903,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             <div class="msg user">{turn.user_text_ko}</div>
 
             <div class="msg assistant">
+                {#if turn.assistant.micro_feedback?.content_en}
+                    <div class="gloss">{turn.assistant.micro_feedback.content_en}</div>
+                {:else}
+                    <div class="gloss">(no feedback)</div>
+                {/if}
+
                 <div class="assistantText">
                     <div class="assistantLine">
                         {#each tokenizeForUi(turn.assistant.assistant_reply_ko) as tok}
@@ -929,13 +943,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                             (showHintByTurn = toggleByIndex(showHintByTurn, idx))}
                     >
                         Hint
-                    </button>
-                    <button
-                        type="button"
-                        on:click={() =>
-                            (showExplainByTurn = toggleByIndex(showExplainByTurn, idx))}
-                    >
-                        Explain
                     </button>
                     <button
                         type="button"
@@ -981,22 +988,16 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     </div>
                 {/if}
 
-                {#if showExplainByTurn[idx]}
+                {#if turn.assistant.suggested_user_reply_en}
                     <div class="gloss">
-                        {#if turn.assistant.micro_feedback}
-                            <div>{turn.assistant.micro_feedback.content_ko}</div>
-                            {#if turn.assistant.micro_feedback.content_en}
-                                <div>{turn.assistant.micro_feedback.content_en}</div>
-                            {/if}
-                        {:else}
-                            <div>(no feedback)</div>
-                        {/if}
-                        {#if turn.assistant.suggested_user_intent_en}
+                        <div class="row">
+                            <button type="button" on:click={() => useSuggestedReply(turn)}>
+                                Use suggested reply
+                            </button>
                             <div>
-                                Suggested intent (EN):
-                                {turn.assistant.suggested_user_intent_en}
+                                Suggested reply (EN): {turn.assistant.suggested_user_reply_en}
                             </div>
-                        {/if}
+                        </div>
                     </div>
                 {/if}
 
@@ -1065,11 +1066,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     {#if showPlanReply}
         <div class="gloss">
             <div class="row">
-                <label for="intent">English intent</label>
+                <label for="draftKo">Your draft (Korean)</label>
                 <input
-                    id="intent"
-                    bind:value={intentEn}
-                    placeholder="What do you want to say?"
+                    id="draftKo"
+                    bind:value={planReplyDraftKo}
+                    placeholder="Type your draft Korean reply…"
                 />
                 <button on:click={planReply}>Generate</button>
             </div>

@@ -74,23 +74,38 @@ class ConversationGateway:
                         assistant_reply_ko=response.assistant_reply_ko,
                         micro_feedback=response.micro_feedback,
                         suggested_user_intent_en=response.suggested_user_intent_en,
+                        suggested_user_reply_ko=response.suggested_user_reply_ko,
+                        suggested_user_reply_en=response.suggested_user_reply_en,
                         targets_used=filtered,
                         unexpected_tokens=response.unexpected_tokens,
                         word_glosses=response.word_glosses,
                     )
 
             if request.generation_instructions.safe_mode:
-                validation = validate_tokens(
-                    response.assistant_reply_ko, request.language_constraints
+                validations = [
+                    validate_tokens(response.assistant_reply_ko, request.language_constraints)
+                ]
+                if isinstance(response.suggested_user_reply_ko, str) and response.suggested_user_reply_ko.strip():
+                    validations.append(
+                        validate_tokens(
+                            response.suggested_user_reply_ko, request.language_constraints
+                        )
+                    )
+                unexpected_unique = tuple(
+                    dict.fromkeys(
+                        token for v in validations for token in (v.unexpected_tokens or ())
+                    )
                 )
-                if not validation.ok:
+                if unexpected_unique:
                     if not request.language_constraints.forbidden.introduce_new_vocab:
                         response = ConversationResponse(
                             assistant_reply_ko=response.assistant_reply_ko,
                             micro_feedback=response.micro_feedback,
                             suggested_user_intent_en=response.suggested_user_intent_en,
+                            suggested_user_reply_ko=response.suggested_user_reply_ko,
+                            suggested_user_reply_en=response.suggested_user_reply_en,
                             targets_used=response.targets_used,
-                            unexpected_tokens=validation.unexpected_tokens,
+                            unexpected_tokens=unexpected_unique,
                             word_glosses=response.word_glosses,
                         )
                     else:
@@ -99,13 +114,15 @@ class ConversationGateway:
                                 assistant_reply_ko=response.assistant_reply_ko,
                                 micro_feedback=response.micro_feedback,
                                 suggested_user_intent_en=response.suggested_user_intent_en,
+                                suggested_user_reply_ko=response.suggested_user_reply_ko,
+                                suggested_user_reply_en=response.suggested_user_reply_en,
                                 targets_used=response.targets_used,
-                                unexpected_tokens=validation.unexpected_tokens,
+                                unexpected_tokens=unexpected_unique,
                                 word_glosses=response.word_glosses,
                             )
                         request = _rewrite_request(
                             request,
-                            reason=f"unexpected_tokens:{','.join(validation.unexpected_tokens)}",
+                            reason=f"unexpected_tokens:{','.join(unexpected_unique)}",
                         )
                         continue
 

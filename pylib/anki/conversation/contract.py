@@ -53,6 +53,25 @@ def check_response_against_request(
     forbidden = request.language_constraints.forbidden
     allowed_target_ids = {str(t.id) for t in request.language_constraints.must_target}
 
+    if response.micro_feedback is None or not (
+        isinstance(response.micro_feedback.get("content_en"), str)
+        and response.micro_feedback["content_en"].strip()
+    ):
+        return ContractViolation(reason="missing_micro_feedback_en")
+
+    if not isinstance(response.suggested_user_reply_ko, str) or not (
+        response.suggested_user_reply_ko.strip()
+    ):
+        return ContractViolation(reason="missing_suggested_user_reply_ko")
+
+    if not isinstance(response.suggested_user_reply_en, str) or not (
+        response.suggested_user_reply_en.strip()
+    ):
+        return ContractViolation(reason="missing_suggested_user_reply_en")
+
+    if "?" in response.suggested_user_reply_ko:
+        return ContractViolation(reason="suggested_user_reply_must_not_be_question")
+
     if forbidden.sentence_length_max > 0:
         tokens = tokenize_for_validation(response.assistant_reply_ko)
         if len(tokens) > forbidden.sentence_length_max:

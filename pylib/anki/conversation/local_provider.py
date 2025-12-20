@@ -68,8 +68,14 @@ class LocalConversationProvider(ConversationProvider):
 
         return {
             "assistant_reply_ko": assistant_reply_ko,
-            "micro_feedback": {"type": "none", "content_ko": "", "content_en": ""},
+            "micro_feedback": {
+                "type": "none",
+                "content_ko": "",
+                "content_en": "Feedback unavailable in local mode.",
+            },
             "suggested_user_intent_en": None,
+            "suggested_user_reply_ko": "네.",
+            "suggested_user_reply_en": "Yes.",
             "targets_used": targets_used,
             "unexpected_tokens": [],
             "word_glosses": word_glosses,

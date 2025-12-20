@@ -64,24 +64,54 @@ class FakeConversationProvider(ConversationProvider):
     def generate(self, *, request: ConversationRequest) -> dict[str, Any]:
         def with_placeholder_glosses(item: dict[str, Any]) -> dict[str, Any]:
             if isinstance(item.get("word_glosses"), dict):
-                return item
+                out = dict(item)
+            else:
+                assistant_reply_ko = item.get("assistant_reply_ko", "")
+                if not isinstance(assistant_reply_ko, str):
+                    out = dict(item)
+                else:
+                    allowed = set(request.language_constraints.allowed_support)
+                    for mt in request.language_constraints.must_target:
+                        allowed.update(mt.surface_forms)
+                    tokens = set(tokenize_for_validation(assistant_reply_ko))
+                    glosses = {
+                        t: "(gloss unavailable offline)" for t in tokens if t in allowed
+                    }
+                    out = dict(item)
+                    out["word_glosses"] = glosses
+
+            # Keep scripted fixtures backward-compatible with newer schema requirements.
+            fb = out.get("micro_feedback")
+            if not isinstance(fb, dict):
+                fb = {"type": "none", "content_ko": "", "content_en": ""}
+            if not isinstance(fb.get("content_en"), str) or not fb["content_en"].strip():
+                fb = dict(fb)
+                fb["content_en"] = "Feedback unavailable in fake provider mode."
+            out["micro_feedback"] = fb
+            if not isinstance(out.get("suggested_user_reply_ko"), str) or not str(
+                out.get("suggested_user_reply_ko") or ""
+            ).strip():
+                out["suggested_user_reply_ko"] = "네."
+            if not isinstance(out.get("suggested_user_reply_en"), str) or not str(
+                out.get("suggested_user_reply_en") or ""
+            ).strip():
+                out["suggested_user_reply_en"] = "Yes."
             assistant_reply_ko = item.get("assistant_reply_ko", "")
             if not isinstance(assistant_reply_ko, str):
-                return item
-            allowed = set(request.language_constraints.allowed_support)
-            for mt in request.language_constraints.must_target:
-                allowed.update(mt.surface_forms)
-            tokens = set(tokenize_for_validation(assistant_reply_ko))
-            glosses = {t: "(gloss unavailable offline)" for t in tokens if t in allowed}
-            out = dict(item)
-            out["word_glosses"] = glosses
+                return out
             return out
 
         if self._i >= len(self._scripted):
             return {
                 "assistant_reply_ko": "네, 알겠어요.",
-                "micro_feedback": {"type": "none", "content_ko": "", "content_en": ""},
+                "micro_feedback": {
+                    "type": "none",
+                    "content_ko": "",
+                    "content_en": "Feedback unavailable in fake provider mode.",
+                },
                 "suggested_user_intent_en": None,
+                "suggested_user_reply_ko": "네.",
+                "suggested_user_reply_en": "Yes.",
                 "targets_used": [],
                 "unexpected_tokens": [],
                 "word_glosses": {},
@@ -175,11 +205,11 @@ def main(argv: list[str] | None = None) -> None:
     export.add_argument("--redaction", choices=[e.value for e in RedactionLevel])
 
     plan = sub.add_parser(
-        "plan-reply", help="Generate 2-3 Korean reply options from English intent"
+        "plan-reply", help="Rewrite a Korean draft into reply options"
     )
     plan.add_argument("--collection", required=True)
     plan.add_argument("--deck", action="append", required=True)
-    plan.add_argument("--intent-en", required=True)
+    plan.add_argument("--draft-ko", required=True)
     plan.add_argument("--provider", choices=["fake", "openai"])
     plan.add_argument(
         "--provider-script",
@@ -537,7 +567,7 @@ def _cmd_plan_reply(args: argparse.Namespace) -> None:
         req = PlanReplyRequest(
             system_role=PLAN_REPLY_SYSTEM_ROLE,
             conversation_state=conv_state,
-            intent_en=args.intent_en,
+            draft_ko=args.draft_ko,
             language_constraints=constraints,
             generation_instructions=instructions,
         )

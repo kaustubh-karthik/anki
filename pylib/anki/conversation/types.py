@@ -138,6 +138,8 @@ class ConversationResponse:
     assistant_reply_ko: str
     micro_feedback: MicroFeedbackDict | None = None
     suggested_user_intent_en: str | None = None
+    suggested_user_reply_ko: str | None = None
+    suggested_user_reply_en: str | None = None
     targets_used: tuple[str, ...] = ()
     unexpected_tokens: tuple[str, ...] = ()
     word_glosses: tuple[tuple[str, str], ...] = ()  # (word, english_gloss) pairs
@@ -172,6 +174,18 @@ class ConversationResponse:
         ):
             raise ValueError("suggested_user_intent_en must be a string or null")
 
+        suggested_user_reply_ko = data.get("suggested_user_reply_ko")
+        if suggested_user_reply_ko is not None and not isinstance(
+            suggested_user_reply_ko, str
+        ):
+            raise ValueError("suggested_user_reply_ko must be a string or null")
+
+        suggested_user_reply_en = data.get("suggested_user_reply_en")
+        if suggested_user_reply_en is not None and not isinstance(
+            suggested_user_reply_en, str
+        ):
+            raise ValueError("suggested_user_reply_en must be a string or null")
+
         targets_used = data.get("targets_used", [])
         if not isinstance(targets_used, list) or not all(
             isinstance(x, str) for x in targets_used
@@ -202,6 +216,8 @@ class ConversationResponse:
             assistant_reply_ko=assistant_reply_ko,
             micro_feedback=micro_feedback,
             suggested_user_intent_en=suggested_user_intent_en,
+            suggested_user_reply_ko=suggested_user_reply_ko,
+            suggested_user_reply_en=suggested_user_reply_en,
             targets_used=tuple(targets_used),
             unexpected_tokens=tuple(unexpected_tokens),
             word_glosses=tuple(word_glosses),
@@ -212,6 +228,8 @@ class ConversationResponse:
             "assistant_reply_ko": self.assistant_reply_ko,
             "micro_feedback": self.micro_feedback,
             "suggested_user_intent_en": self.suggested_user_intent_en,
+            "suggested_user_reply_ko": self.suggested_user_reply_ko,
+            "suggested_user_reply_en": self.suggested_user_reply_en,
             "targets_used": list(self.targets_used),
             "unexpected_tokens": list(self.unexpected_tokens),
             "word_glosses": {word: gloss for word, gloss in self.word_glosses},

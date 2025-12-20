@@ -276,8 +276,14 @@ def test_conversation_session_controller_runs_without_ui() -> None:
             self.calls += 1
             return {
                 "assistant_reply_ko": "의자 있어요. 뭐예요?",
-                "micro_feedback": {"type": "none", "content_ko": "", "content_en": ""},
+                "micro_feedback": {
+                    "type": "none",
+                    "content_ko": "",
+                    "content_en": "Feedback unavailable in test provider.",
+                },
                 "suggested_user_intent_en": None,
+                "suggested_user_reply_ko": "네.",
+                "suggested_user_reply_en": "Yes.",
                 "targets_used": ["lexeme:의자"],
                 "unexpected_tokens": [],
                 "word_glosses": {
@@ -597,16 +603,28 @@ class _ScriptedProvider(ConversationProvider):
         if self.calls == 1:
             return {
                 "assistant_reply_ko": "고양이 있어요. 뭐가 있어요?",
-                "micro_feedback": {"type": "none", "content_ko": "", "content_en": ""},
+                "micro_feedback": {
+                    "type": "none",
+                    "content_ko": "",
+                    "content_en": "Feedback unavailable in test provider.",
+                },
                 "suggested_user_intent_en": None,
+                "suggested_user_reply_ko": "네.",
+                "suggested_user_reply_en": "Yes.",
                 "targets_used": [],
                 "unexpected_tokens": [],
                 "word_glosses": {"고양이": "cat", "있어요": "there is", "뭐가": "what"},
             }
         return {
             "assistant_reply_ko": "의자 있어요. 뭐가 있어요?",
-            "micro_feedback": {"type": "none", "content_ko": "", "content_en": ""},
+            "micro_feedback": {
+                "type": "none",
+                "content_ko": "",
+                "content_en": "Feedback unavailable in test provider.",
+            },
             "suggested_user_intent_en": None,
+            "suggested_user_reply_ko": "네.",
+            "suggested_user_reply_en": "Yes.",
             "targets_used": [],
             "unexpected_tokens": [],
             "word_glosses": {"의자": "chair", "있어요": "there is", "뭐가": "what"},
@@ -648,8 +666,14 @@ def test_gateway_preserves_word_glosses_on_unexpected_tokens_fallback() -> None:
         def generate(self, *, request: ConversationRequest) -> dict:
             return {
                 "assistant_reply_ko": "고양이 있어요. 뭐예요?",
-                "micro_feedback": {"type": "none", "content_ko": "", "content_en": ""},
+                "micro_feedback": {
+                    "type": "none",
+                    "content_ko": "",
+                    "content_en": "Feedback unavailable in test provider.",
+                },
                 "suggested_user_intent_en": None,
+                "suggested_user_reply_ko": "네.",
+                "suggested_user_reply_en": "Yes.",
                 "targets_used": [],
                 "unexpected_tokens": [],
                 "word_glosses": {
@@ -687,8 +711,14 @@ def test_gateway_allows_unexpected_tokens_when_new_vocab_allowed() -> None:
             self.calls += 1
             return {
                 "assistant_reply_ko": "고양이 있어요. 뭐예요?",
-                "micro_feedback": {"type": "none", "content_ko": "", "content_en": ""},
+                "micro_feedback": {
+                    "type": "none",
+                    "content_ko": "",
+                    "content_en": "Feedback unavailable in test provider.",
+                },
                 "suggested_user_intent_en": None,
+                "suggested_user_reply_ko": "네.",
+                "suggested_user_reply_en": "Yes.",
                 "targets_used": [],
                 "unexpected_tokens": [],
                 "word_glosses": {
@@ -724,8 +754,14 @@ class _LongReplyProvider(ConversationProvider):
         # produce many tokens to exceed sentence_length_max
         return {
             "assistant_reply_ko": "의자 " * 100,
-            "micro_feedback": {"type": "none", "content_ko": "", "content_en": ""},
+            "micro_feedback": {
+                "type": "none",
+                "content_ko": "",
+                "content_en": "Feedback unavailable in test provider.",
+            },
             "suggested_user_intent_en": None,
+            "suggested_user_reply_ko": "네.",
+            "suggested_user_reply_en": "Yes.",
             "targets_used": [],
             "unexpected_tokens": [],
             "word_glosses": {"의자": "chair", "뭐예요": "what is it"},
@@ -791,7 +827,7 @@ def test_plan_reply_gateway_rewrites_on_unexpected_tokens() -> None:
     req = PlanReplyRequest(
         system_role="Return JSON only.",
         conversation_state=ConversationState(summary="x"),
-        intent_en="There is a chair.",
+        draft_ko="고양이 있어요.",
         language_constraints=LanguageConstraints(
             must_target=(
                 MustTarget(
@@ -1444,8 +1480,14 @@ def test_gateway_rewrites_on_llm_output_parse_error() -> None:
                 raise LLMOutputParseError("invalid JSON")
             return {
                 "assistant_reply_ko": "네.",
-                "micro_feedback": {"type": "none", "content_ko": "", "content_en": ""},
+                "micro_feedback": {
+                    "type": "none",
+                    "content_ko": "",
+                    "content_en": "Feedback unavailable in test provider.",
+                },
                 "suggested_user_intent_en": None,
+                "suggested_user_reply_ko": "네.",
+                "suggested_user_reply_en": "Yes.",
                 "targets_used": [],
                 "unexpected_tokens": [],
                 "word_glosses": {},
@@ -1482,7 +1524,7 @@ def test_plan_reply_gateway_rewrites_on_llm_output_parse_error() -> None:
     req = PlanReplyRequest(
         system_role="system",
         conversation_state=ConversationState(summary="s"),
-        intent_en="say yes",
+        draft_ko="네.",
         language_constraints=LanguageConstraints(
             forbidden=ForbiddenConstraints(sentence_length_max=0)
         ),

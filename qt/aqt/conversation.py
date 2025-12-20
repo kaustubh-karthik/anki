@@ -806,9 +806,9 @@ class ConversationDialog(QDialog):
     def _plan_reply(self, payload: dict[str, Any]) -> dict[str, Any]:
         if self._session is None:
             return {"ok": False, "error": "session not started"}
-        intent = payload.get("intent_en")
-        if not isinstance(intent, str) or not intent:
-            return {"ok": False, "error": "intent_en required"}
+        draft_ko = payload.get("draft_ko")
+        if not isinstance(draft_ko, str) or not draft_ko.strip():
+            return {"ok": False, "error": "draft_ko required"}
         api_key = resolve_openai_api_key()
         if not api_key or self._session.settings.provider != "openai":
             return {"ok": False, "error": "LLM provider not configured"}
@@ -833,7 +833,7 @@ class ConversationDialog(QDialog):
         req = PlanReplyRequest(
             system_role=PLAN_REPLY_SYSTEM_ROLE,
             conversation_state=conv_state,
-            intent_en=intent,
+            draft_ko=draft_ko,
             language_constraints=constraints,
             generation_instructions=instructions,
         )

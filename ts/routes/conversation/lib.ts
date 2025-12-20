@@ -8,6 +8,8 @@ export type ConversationTurnResponse =
             assistant_reply_ko: string;
             micro_feedback?: { type: "none" | "correction" | "praise"; content_ko: string; content_en: string } | null;
             suggested_user_intent_en?: string | null;
+            suggested_user_reply_ko?: string | null;
+            suggested_user_reply_en?: string | null;
             targets_used?: string[];
             unexpected_tokens?: string[];
             word_glosses?: Record<string, string>;
