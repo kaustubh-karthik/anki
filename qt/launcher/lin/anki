@@ -1,6 +1,36 @@
 #!/bin/bash
 # Universal Anki launcher script
 
+# If the desktop environment didn't export input-method variables (common on some
+# systemd-based sessions), Qt may fall back to plain key events and IME
+# composition (eg. Hangul) won't work. Try to infer a reasonable default from
+# the running input method daemon, but do not override user-provided settings.
+#
+# You can force a specific module with ANKI_IM_MODULE (eg. fcitx/ibus).
+# Set ANKI_DEBUG_IME=1 to print what was chosen.
+if [ -n "$ANKI_IM_MODULE" ]; then
+    export QT_IM_MODULE="${QT_IM_MODULE:-$ANKI_IM_MODULE}"
+    export GTK_IM_MODULE="${GTK_IM_MODULE:-$ANKI_IM_MODULE}"
+    export XMODIFIERS="${XMODIFIERS:-@im=$ANKI_IM_MODULE}"
+else
+    if [ -z "$QT_IM_MODULE" ]; then
+        if command -v pgrep >/dev/null 2>&1 && pgrep -x fcitx5 >/dev/null 2>&1; then
+            export QT_IM_MODULE=fcitx
+        elif command -v pgrep >/dev/null 2>&1 && pgrep -x ibus-daemon >/dev/null 2>&1; then
+            export QT_IM_MODULE=ibus
+        fi
+    fi
+fi
+
+if [ -n "$QT_IM_MODULE" ]; then
+    export GTK_IM_MODULE="${GTK_IM_MODULE:-$QT_IM_MODULE}"
+    export XMODIFIERS="${XMODIFIERS:-@im=$QT_IM_MODULE}"
+fi
+
+if [ -n "$ANKI_DEBUG_IME" ]; then
+    echo "Anki IME env: QT_IM_MODULE=${QT_IM_MODULE:-<unset>} GTK_IM_MODULE=${GTK_IM_MODULE:-<unset>} XMODIFIERS=${XMODIFIERS:-<unset>}" >&2
+fi
+
 # Get the directory where this script is located (resolve symlinks)
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 
