@@ -14,6 +14,14 @@ class ContractViolation:
     reason: str
 
 
+def _norm_for_repeat_check(text: str) -> str:
+    t = (text or "").strip()
+    # Normalize common end punctuation and whitespace so "네" and "네." compare equal.
+    t = t.rstrip(".!?\u3002\uff01\uff1f")
+    t = " ".join(t.split())
+    return t
+
+
 def _required_gloss_tokens(
     *, request: ConversationRequest, response: ConversationResponse
 ) -> set[str]:
@@ -71,6 +79,14 @@ def check_response_against_request(
 
     if "?" in response.suggested_user_reply_ko:
         return ContractViolation(reason="suggested_user_reply_must_not_be_question")
+
+    prev_suggested = (
+        request.conversation_state.last_suggested_user_reply_ko or ""
+    ).strip()
+    if prev_suggested and _norm_for_repeat_check(
+        response.suggested_user_reply_ko
+    ) == _norm_for_repeat_check(prev_suggested):
+        return ContractViolation(reason="repeated_suggested_user_reply")
 
     if forbidden.sentence_length_max > 0:
         tokens = tokenize_for_validation(response.assistant_reply_ko)

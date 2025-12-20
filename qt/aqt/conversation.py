@@ -415,6 +415,9 @@ class ConversationDialog(QDialog):
         if self._session.settings.allow_new_words:
             self._observe_new_words_from_response(response)
         self._session.state.last_assistant_turn_ko = response.assistant_reply_ko
+        self._session.state.last_suggested_user_reply_ko = (
+            response.suggested_user_reply_ko or ""
+        )
         missed = self._session.planner.observe_turn(
             self._session.state,
             constraints=constraints,
@@ -669,6 +672,9 @@ class ConversationDialog(QDialog):
         if self._session.settings.allow_new_words:
             self._observe_new_words_from_response(response)
         self._session.state.last_assistant_turn_ko = response.assistant_reply_ko
+        self._session.state.last_suggested_user_reply_ko = (
+            response.suggested_user_reply_ko or ""
+        )
         missed = self._session.planner.observe_turn(
             self._session.state,
             constraints=constraints,

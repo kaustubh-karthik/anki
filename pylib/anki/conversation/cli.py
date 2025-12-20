@@ -102,6 +102,15 @@ class FakeConversationProvider(ConversationProvider):
             return out
 
         if self._i >= len(self._scripted):
+            # Avoid repeating suggestions if the caller is looping in a tight vocab budget.
+            prev_suggested = (
+                request.conversation_state.last_suggested_user_reply_ko or ""
+            ).strip()
+            fallback_suggested_ko = "네."
+            fallback_suggested_en = "Yes."
+            if prev_suggested == fallback_suggested_ko:
+                fallback_suggested_ko = "아니요."
+                fallback_suggested_en = "No."
             return {
                 "assistant_reply_ko": "네, 알겠어요.",
                 "micro_feedback": {
@@ -110,8 +119,8 @@ class FakeConversationProvider(ConversationProvider):
                     "content_en": "Feedback unavailable in fake provider mode.",
                 },
                 "suggested_user_intent_en": None,
-                "suggested_user_reply_ko": "네.",
-                "suggested_user_reply_en": "Yes.",
+                "suggested_user_reply_ko": fallback_suggested_ko,
+                "suggested_user_reply_en": fallback_suggested_en,
                 "targets_used": [],
                 "unexpected_tokens": [],
                 "word_glosses": {},

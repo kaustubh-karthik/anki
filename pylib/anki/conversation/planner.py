@@ -103,6 +103,7 @@ class PlannerState:
     conversation_summary: str
     last_assistant_turn_ko: str = ""
     last_user_turn_ko: str = ""
+    last_suggested_user_reply_ko: str = ""
     turn_index: int = 0
     scheduled_reuse: dict[str, int] = field(default_factory=dict)
     last_must_target_ids: tuple[str, ...] = ()
@@ -392,6 +393,7 @@ class ConversationPlanner:
             summary=state.conversation_summary,
             last_assistant_turn_ko=state.last_assistant_turn_ko,
             last_user_turn_ko=user_input.text_ko,
+            last_suggested_user_reply_ko=state.last_suggested_user_reply_ko,
         )
         state.last_user_turn_ko = user_input.text_ko
         state.last_must_target_ids = tuple(str(t.id) for t in must_targets)

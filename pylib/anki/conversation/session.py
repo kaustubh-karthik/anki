@@ -139,6 +139,7 @@ class ConversationSession:
         )
 
         self.state.last_assistant_turn_ko = response.assistant_reply_ko
+        self.state.last_suggested_user_reply_ko = response.suggested_user_reply_ko or ""
         missed = self.planner.observe_turn(
             self.state,
             constraints=constraints,

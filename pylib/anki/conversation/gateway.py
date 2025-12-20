@@ -131,6 +131,24 @@ class ConversationGateway:
             )
             if violation is not None:
                 if attempt >= self.max_rewrites:
+                    if violation.reason == "repeated_suggested_user_reply":
+                        prev = (
+                            request.conversation_state.last_suggested_user_reply_ko
+                            or ""
+                        ).strip()
+                        alt_ko, alt_en = _fallback_non_repeating_suggested_reply(
+                            prev=prev, current=response.suggested_user_reply_ko or ""
+                        )
+                        return ConversationResponse(
+                            assistant_reply_ko=response.assistant_reply_ko,
+                            micro_feedback=response.micro_feedback,
+                            suggested_user_intent_en=response.suggested_user_intent_en,
+                            suggested_user_reply_ko=alt_ko,
+                            suggested_user_reply_en=alt_en,
+                            targets_used=response.targets_used,
+                            unexpected_tokens=response.unexpected_tokens,
+                            word_glosses=response.word_glosses,
+                        )
                     raise ValueError(f"contract violation: {violation.reason}")
                 request = _rewrite_request(
                     request, reason=f"contract:{violation.reason}"
@@ -175,3 +193,30 @@ def _with_rewrite_directive(*, system_role: str, reason: str, directive: str) ->
         + "). "
         + directive
     )
+
+
+def _fallback_non_repeating_suggested_reply(*, prev: str, current: str) -> tuple[str, str]:
+    def norm(s: str) -> str:
+        s = (s or "").strip()
+        s = s.rstrip(".!?\u3002\uff01\uff1f")
+        s = " ".join(s.split())
+        return s
+
+    prev_n = norm(prev)
+    cur_n = norm(current)
+
+    # Keep this tiny and in BASE_ALLOWED_SUPPORT/validation allowlist.
+    candidates: list[tuple[str, str]] = [
+        ("네.", "Yes."),
+        ("아니요.", "No."),
+        ("맞아요.", "That's right."),
+        ("아니에요.", "That's not right."),
+    ]
+    for ko, en in candidates:
+        n = norm(ko)
+        if n and n != prev_n and n != cur_n:
+            return ko, en
+    # As a last resort, return the current value unchanged.
+    ko = (current or "").strip() or "네."
+    en = "Yes." if norm(ko) == norm("네.") else "Okay."
+    return ko, en

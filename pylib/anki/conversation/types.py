@@ -58,6 +58,7 @@ class ConversationState:
     summary: str
     last_assistant_turn_ko: str = ""
     last_user_turn_ko: str = ""
+    last_suggested_user_reply_ko: str = ""
 
 
 @dataclass(frozen=True)
@@ -107,10 +108,14 @@ class ConversationRequest:
         max_len = self.language_constraints.forbidden.sentence_length_max
 
         last_assistant = (self.conversation_state.last_assistant_turn_ko or "").strip()
+        last_suggested = (
+            self.conversation_state.last_suggested_user_reply_ko or ""
+        ).strip()
         user_text = (self.user_input.text_ko or "").strip()
 
         return (
             f"Last assistant (KO): {last_assistant}\n"
+            f"Last suggested user reply (KO): {last_suggested}\n"
             f"User (KO): {user_text}\n\n"
             f"For content words (nouns/verbs/adjectives/adverbs), use ONLY these Korean words: "
             f"{{{allowed_str}}}\n"

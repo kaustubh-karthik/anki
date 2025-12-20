@@ -49,6 +49,14 @@ class LocalConversationProvider(ConversationProvider):
         question = pick_allowed(("뭐예요", "뭐"), "뭐예요") + "?"
         assistant_reply_ko = f"{statement} {question}"
 
+        # Suggested user reply: a short non-question, and avoid repeating the last suggestion.
+        prev_suggested = (
+            request.conversation_state.last_suggested_user_reply_ko or ""
+        ).strip()
+        suggested_user_reply_ko = "네."
+        if prev_suggested == suggested_user_reply_ko:
+            suggested_user_reply_ko = "아니요." if "아니요" in allowed else "네."
+
         used_tokens = set(tokenize_for_validation(assistant_reply_ko))
         targets_used: list[str] = []
         for mt in request.language_constraints.must_target:
@@ -74,8 +82,8 @@ class LocalConversationProvider(ConversationProvider):
                 "content_en": "Feedback unavailable in local mode.",
             },
             "suggested_user_intent_en": None,
-            "suggested_user_reply_ko": "네.",
-            "suggested_user_reply_en": "Yes.",
+            "suggested_user_reply_ko": suggested_user_reply_ko,
+            "suggested_user_reply_en": "No." if suggested_user_reply_ko == "아니요." else "Yes.",
             "targets_used": targets_used,
             "unexpected_tokens": [],
             "word_glosses": word_glosses,
