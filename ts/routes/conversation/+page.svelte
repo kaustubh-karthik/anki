@@ -29,6 +29,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         number,
         Record<string, { band?: string; r?: number | null; stage?: number | null }>
     > = {};
+    let plannedTargetsByTurn: Record<
+        number,
+        Array<{ id: string; type: string; surface_forms: string[]; gloss?: string | null }>
+    > = {};
     let showHintByTurn: Record<number, boolean> = {};
     let showExplainByTurn: Record<number, boolean> = {};
     let showTranslateByTurn: Record<number, boolean> = {};
@@ -396,6 +400,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 turns = [];
                 resolvedGlossesByTurn = {};
                 debugVocabByTurn = {};
+                plannedTargetsByTurn = {};
                 showHintByTurn = {};
                 showExplainByTurn = {};
                 showTranslateByTurn = {};
@@ -459,6 +464,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 debugVocabByTurn = {
                     ...debugVocabByTurn,
                     [newIndex]: (result as any).debug_vocab ?? {},
+                };
+                plannedTargetsByTurn = {
+                    ...plannedTargetsByTurn,
+                    [newIndex]: (result as any).planned_targets ?? [],
                 };
                 turns = [
                     ...turns,
@@ -636,6 +645,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             started = false;
             resolvedGlossesByTurn = {};
             debugVocabByTurn = {};
+            plannedTargetsByTurn = {};
             tooltip = null;
         });
     }
@@ -938,10 +948,28 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
                 {#if showHintByTurn[idx]}
                     <div class="gloss">
+                        {#if (plannedTargetsByTurn[idx] ?? []).length}
+                            <div>
+                                planned_targets: {(plannedTargetsByTurn[idx] ?? [])
+                                    .map(
+                                        (t) =>
+                                            `${t.id}={${(t.surface_forms ?? []).join(",")}}`,
+                                    )
+                                    .join(" | ")}
+                            </div>
+                        {/if}
                         <div>
-                            targets_used: {(turn.assistant.targets_used ?? []).join(
-                                ", ",
-                            )}
+                            targets_used: {(turn.assistant.targets_used ?? [])
+                                .map((id) => {
+                                    const planned = (plannedTargetsByTurn[idx] ?? []).find(
+                                        (t) => t.id === id,
+                                    );
+                                    if (!planned) {
+                                        return id;
+                                    }
+                                    return `${id}={${(planned.surface_forms ?? []).join(",")}}`;
+                                })
+                                .join(", ")}
                         </div>
                         {#if (turn.assistant.unexpected_tokens ?? []).length}
                             <div>

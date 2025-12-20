@@ -19,8 +19,9 @@ SYSTEM_ROLE = (
     "- word_glosses (object mapping EVERY content-word token used in assistant_reply_ko -> English gloss)\n"
     "- micro_feedback (object: {type:'none'|'correction'|'praise', content_ko:'', content_en:''})\n"
     "- targets_used (list of target IDs you used)\n\n"
+    "targets_used must be a list of strings, and must contain only IDs from the Targets list in the user message.\n"
     "Example output (format only):\n"
-    '{"assistant_reply_ko":"좋아요! 오늘 뭐 해요?","word_glosses":{"좋아요":"sounds good/okay","오늘":"today","뭐":"what","해요":"do"},"micro_feedback":{"type":"none","content_ko":"","content_en":""},"targets_used":["t1","t2"]}\n'
+    '{"assistant_reply_ko":"좋아요! 오늘 뭐 해요?","word_glosses":{"좋아요":"sounds good/okay","오늘":"today","뭐":"what","해요":"do"},"micro_feedback":{"type":"none","content_ko":"","content_en":""},"targets_used":["<target_id_1>","<target_id_2>"]}\n'
 )
 
 TRANSLATE_SYSTEM_ROLE = (

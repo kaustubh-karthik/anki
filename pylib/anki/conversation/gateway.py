@@ -66,6 +66,19 @@ class ConversationGateway:
                 request = _rewrite_request(request, reason=f"invalid_json:{e}")
                 continue
 
+            if response.targets_used:
+                allowed_target_ids = {str(t.id) for t in request.language_constraints.must_target}
+                filtered = tuple(t for t in response.targets_used if t in allowed_target_ids)
+                if filtered != response.targets_used:
+                    response = ConversationResponse(
+                        assistant_reply_ko=response.assistant_reply_ko,
+                        micro_feedback=response.micro_feedback,
+                        suggested_user_intent_en=response.suggested_user_intent_en,
+                        targets_used=filtered,
+                        unexpected_tokens=response.unexpected_tokens,
+                        word_glosses=response.word_glosses,
+                    )
+
             if request.generation_instructions.safe_mode:
                 validation = validate_tokens(
                     response.assistant_reply_ko, request.language_constraints

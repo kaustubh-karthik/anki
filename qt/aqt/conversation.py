@@ -284,14 +284,19 @@ class ConversationDialog(QDialog):
                         return {"ok": False, "error": "session not started"}
                     response = self._session.gateway.run_turn(request=turn_request)
                     debug_vocab: dict[str, Any] | None = None
+                    planned_targets: list[dict[str, Any]] | None = None
                     if isinstance(turn_context, dict):
                         dv = turn_context.get("debug_vocab")
                         if isinstance(dv, dict):
                             debug_vocab = dv
+                        pt = turn_context.get("planned_targets")
+                        if isinstance(pt, list):
+                            planned_targets = pt
                     return {
                         "ok": True,
                         "response": response.to_json_dict(),
                         "debug_vocab": debug_vocab,
+                        "planned_targets": planned_targets,
                     }
                 if kind == "translate":
                     return self._translate(payload)
@@ -356,6 +361,15 @@ class ConversationDialog(QDialog):
             self._session.state, user_input, mastery=self._session.mastery_cache
         )
         debug_vocab = dict(self._session.state.last_debug_vocab)
+        planned_targets = [
+            {
+                "id": str(t.id),
+                "type": t.type,
+                "surface_forms": list(t.surface_forms),
+                "gloss": t.gloss,
+            }
+            for t in constraints.must_target
+        ]
         instructions = GenerationInstructions(
             conversation_goal=instructions.conversation_goal,
             tone=instructions.tone,
@@ -376,6 +390,7 @@ class ConversationDialog(QDialog):
             "constraints": constraints,
             "user_input": user_input,
             "debug_vocab": debug_vocab,
+            "planned_targets": planned_targets,
         }
         return {"ok": True, "request": request, "context": context}
 
@@ -625,6 +640,15 @@ class ConversationDialog(QDialog):
             self._session.state, user_input, mastery=self._session.mastery_cache
         )
         debug_vocab = dict(self._session.state.last_debug_vocab)
+        planned_targets = [
+            {
+                "id": str(t.id),
+                "type": t.type,
+                "surface_forms": list(t.surface_forms),
+                "gloss": t.gloss,
+            }
+            for t in constraints.must_target
+        ]
         instructions = GenerationInstructions(
             conversation_goal=instructions.conversation_goal,
             tone=instructions.tone,
@@ -660,6 +684,7 @@ class ConversationDialog(QDialog):
             "ok": True,
             "response": response.to_json_dict(),
             "debug_vocab": debug_vocab,
+            "planned_targets": planned_targets,
         }
 
     def _observe_new_words_from_response(self, response: ConversationResponse) -> None:

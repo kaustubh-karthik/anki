@@ -12,6 +12,14 @@ export type ConversationTurnResponse =
             unexpected_tokens?: string[];
             word_glosses?: Record<string, string>;
         };
+        planned_targets?:
+            | Array<{
+                id: string;
+                type: string;
+                surface_forms: string[];
+                gloss?: string | null;
+            }>
+            | null;
         debug_vocab?:
             | Record<
                 string,

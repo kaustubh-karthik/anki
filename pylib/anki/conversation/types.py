@@ -92,9 +92,11 @@ class ConversationRequest:
 
         allowed_content_words = dedupe(allowed_support + target_words)
         target_words = dedupe(target_words)
+        target_ids = dedupe([str(t.id) for t in self.language_constraints.must_target])
 
         allowed_str = ", ".join(allowed_content_words)
         target_str = ", ".join(target_words)
+        target_ids_str = ", ".join(target_ids)
 
         targets_lines: list[str] = []
         for t in self.language_constraints.must_target:
@@ -113,6 +115,7 @@ class ConversationRequest:
             f"For content words (nouns/verbs/adjectives/adverbs), use ONLY these Korean words: "
             f"{{{allowed_str}}}\n"
             f"Prioritize using these target words when natural: {{{target_str}}}\n"
+            f"Valid target IDs (for targets_used): {{{target_ids_str}}}\n"
             f"New vocab allowed: {str(new_vocab_allowed).lower()}\n"
             f"Max tokens (approx): {max_len}\n\n"
             "Targets (use IDs in targets_used if used):\n"

@@ -51,11 +51,18 @@ def check_response_against_request(
     *, request: ConversationRequest, response: ConversationResponse
 ) -> ContractViolation | None:
     forbidden = request.language_constraints.forbidden
+    allowed_target_ids = {str(t.id) for t in request.language_constraints.must_target}
 
     if forbidden.sentence_length_max > 0:
         tokens = tokenize_for_validation(response.assistant_reply_ko)
         if len(tokens) > forbidden.sentence_length_max:
             return ContractViolation(reason="sentence_length_max")
+
+    if response.targets_used:
+        invalid = [tid for tid in response.targets_used if tid not in allowed_target_ids]
+        if invalid:
+            sample = ",".join(invalid[:8])
+            return ContractViolation(reason=f"invalid_targets_used:{sample}")
 
     if request.generation_instructions.max_corrections == 0 and response.micro_feedback:
         if response.micro_feedback.get("type") == "correction":
