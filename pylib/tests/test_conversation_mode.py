@@ -8,6 +8,11 @@ from dataclasses import dataclass
 from typing import Any
 
 from anki.consts import CARD_TYPE_REV, QUEUE_TYPE_REV
+from anki.conversation.bands import (
+    RetrievabilityBand,
+    classify_item,
+    compute_retrievability,
+)
 from anki.conversation.events import apply_missed_targets
 from anki.conversation.export import export_conversation_telemetry
 from anki.conversation.gateway import ConversationGateway, ConversationProvider
@@ -20,7 +25,7 @@ from anki.conversation.plan_reply import (
     PlanReplyGateway,
     PlanReplyRequest,
 )
-from anki.conversation.planner import ConversationPlanner
+from anki.conversation.planner import ConversationPlanner, NewWordState
 from anki.conversation.redaction import redact_text
 from anki.conversation.session import ConversationSession
 from anki.conversation.settings import (
@@ -29,7 +34,7 @@ from anki.conversation.settings import (
     load_conversation_settings,
     save_conversation_settings,
 )
-from anki.conversation.snapshot import build_deck_snapshot
+from anki.conversation.snapshot import DeckSnapshot, SnapshotItem, build_deck_snapshot
 from anki.conversation.suggest import apply_suggested_cards, suggestions_from_wrap
 from anki.conversation.telemetry import ConversationTelemetryStore
 from anki.conversation.topics import get_topic
@@ -48,6 +53,7 @@ from anki.conversation.types import (
     MustTarget,
     UserInput,
 )
+from anki.conversation.wrap import compute_session_wrap
 from anki.decks import DeckId
 from anki.httpclient import HttpClient
 from tests.shared import getEmptyCol
@@ -277,7 +283,11 @@ def test_conversation_session_controller_runs_without_ui() -> None:
                 "suggested_user_intent_en": None,
                 "targets_used": ["lexeme:의자"],
                 "unexpected_tokens": [],
-                "word_glosses": {"의자": "chair", "있어요": "there is", "뭐예요": "what is it"},
+                "word_glosses": {
+                    "의자": "chair",
+                    "있어요": "there is",
+                    "뭐예요": "what is it",
+                },
             }
 
     col = getEmptyCol()
@@ -458,6 +468,28 @@ def test_snapshot_strips_html_in_lexeme_field() -> None:
         col.close()
 
 
+def test_snapshot_uses_back_when_front_is_english() -> None:
+    col = getEmptyCol()
+    try:
+        did = col.decks.id("Korean")
+        col.decks.select(DeckId(did))
+
+        note = col.newNote()
+        note["Front"] = "go"
+        note["Back"] = "가요"
+        col.addNote(note)
+        for card in note.cards():
+            card.did = did
+            card.flush()
+
+        snapshot = build_deck_snapshot(col, [DeckId(did)], include_fsrs_metrics=False)
+        item = next(i for i in snapshot.items if i.source_note_id == int(note.id))
+        assert item.lexeme == "가요"
+        assert item.gloss == "go"
+    finally:
+        col.close()
+
+
 def test_api_key_resolution_prefers_env_over_file(tmp_path) -> None:
     import os
 
@@ -626,7 +658,11 @@ def test_gateway_preserves_word_glosses_on_unexpected_tokens_fallback() -> None:
                 "suggested_user_intent_en": None,
                 "targets_used": [],
                 "unexpected_tokens": [],
-                "word_glosses": {"고양이": "cat", "있어요": "there is", "뭐예요": "what is it"},
+                "word_glosses": {
+                    "고양이": "cat",
+                    "있어요": "there is",
+                    "뭐예요": "what is it",
+                },
             }
 
     provider = _UnexpectedTokenProvider()
@@ -646,6 +682,47 @@ def test_gateway_preserves_word_glosses_on_unexpected_tokens_fallback() -> None:
     resp = gateway.run_turn(request=request)
     assert resp.unexpected_tokens == ("고양이",)
     assert dict(resp.word_glosses).get("고양이") == "cat"
+
+
+def test_gateway_allows_unexpected_tokens_when_new_vocab_allowed() -> None:
+    @dataclass
+    class _UnexpectedTokenProvider(ConversationProvider):
+        calls: int = 0
+
+        def generate(self, *, request: ConversationRequest) -> dict:
+            self.calls += 1
+            return {
+                "assistant_reply_ko": "고양이 있어요.",
+                "follow_up_question_ko": "뭐예요?",
+                "micro_feedback": {"type": "none", "content_ko": "", "content_en": ""},
+                "suggested_user_intent_en": None,
+                "targets_used": [],
+                "unexpected_tokens": [],
+                "word_glosses": {
+                    "고양이": "cat",
+                    "있어요": "there is",
+                    "뭐예요": "what is it",
+                },
+            }
+
+    provider = _UnexpectedTokenProvider()
+    gateway = ConversationGateway(provider=provider, max_rewrites=1)
+    request = ConversationRequest(
+        system_role="Return JSON only.",
+        conversation_state=ConversationState(summary="x"),
+        user_input=UserInput(text_ko="응"),
+        language_constraints=LanguageConstraints(
+            must_target=(),
+            allowed_support=("있어요", "뭐예요"),
+            allowed_grammar=(),
+            forbidden=ForbiddenConstraints(introduce_new_vocab=False),
+        ),
+        generation_instructions=GenerationInstructions(safe_mode=True),
+    )
+
+    resp = gateway.run_turn(request=request)
+    assert provider.calls == 1
+    assert resp.unexpected_tokens == ("고양이",)
 
 
 @dataclass
@@ -1351,12 +1428,16 @@ def test_apply_missed_targets_records_non_lexeme_items() -> None:
 def test_httpclient_post_accepts_none_headers() -> None:
     client = HttpClient()
     try:
+
         class DummySession:
             def post(self, *args: Any, **kwargs: Any) -> str:  # type: ignore[override]
                 headers = kwargs.get("headers")
                 assert isinstance(headers, dict)
                 assert "User-Agent" in headers
                 return "ok"
+
+            def close(self) -> None:
+                pass
 
         client.session = DummySession()  # type: ignore[assignment]
         assert (
@@ -1401,9 +1482,11 @@ def test_gateway_rewrites_on_llm_output_parse_error() -> None:
 
 def test_plan_reply_gateway_rewrites_on_llm_output_parse_error() -> None:
     class FlakyPlanProvider(FakePlanReplyProvider):
+        failed_once: bool = False
+
         def generate(self, *, request: PlanReplyRequest) -> dict[str, Any]:
-            if self.i == 0:
-                self.i += 1
+            if not self.failed_once:
+                self.failed_once = True
                 raise LLMOutputParseError("invalid JSON")
             return super().generate(request=request)
 
@@ -1422,3 +1505,146 @@ def test_plan_reply_gateway_rewrites_on_llm_output_parse_error() -> None:
     )
     resp = gateway.run(request=req)
     assert resp.options_ko == ("네.",)
+
+
+def test_compute_retrievability_matches_formula() -> None:
+    stability = 10.0
+    elapsed = 5.0
+    decay = 0.5
+    factor = (0.9 ** (1.0 / -decay)) - 1.0
+    expected = ((elapsed / stability) * factor + 1.0) ** (-decay)
+    got = compute_retrievability(stability, elapsed, decay)
+    assert abs(got - expected) < 1e-9
+
+
+def test_classify_item_adjusts_for_telemetry() -> None:
+    thresholds = (0.4, 0.6, 0.85)
+    assert (
+        classify_item(
+            0.7,
+            {"dont_know": 2},
+            thresholds=thresholds,
+        )
+        == RetrievabilityBand.FRAGILE
+    )
+    assert (
+        classify_item(
+            0.7,
+            {"conv_success_count": 3},
+            thresholds=thresholds,
+        )
+        == RetrievabilityBand.SUPPORT
+    )
+
+
+def test_planner_excludes_cold_and_marks_fragile_scaffolded() -> None:
+    snapshot = DeckSnapshot(
+        deck_ids=(1,),
+        today=100,
+        items=(
+            SnapshotItem(
+                item_id=ItemId("lexeme:cold"),
+                lexeme="cold",
+                source_note_id=1,
+                source_card_id=1,
+                stability=1.0,
+                last_review_date=10,
+                decay=0.5,
+            ),
+            SnapshotItem(
+                item_id=ItemId("lexeme:fragile"),
+                lexeme="fragile",
+                source_note_id=2,
+                source_card_id=2,
+                stability=10.0,
+                last_review_date=20,
+                decay=0.5,
+            ),
+            SnapshotItem(
+                item_id=ItemId("lexeme:stretch"),
+                lexeme="stretch",
+                source_note_id=3,
+                source_card_id=3,
+                stability=10.0,
+                last_review_date=76,
+                decay=0.5,
+            ),
+        ),
+    )
+    planner = ConversationPlanner(
+        snapshot,
+        settings=ConversationSettings(
+            allow_new_words=False,
+            band_cold_threshold=0.4,
+            band_fragile_threshold=0.6,
+            band_stretch_threshold=0.85,
+        ),
+    )
+    state = planner.initial_state(summary="x")
+    conv_state, constraints, _ = planner.plan_turn(
+        state,
+        UserInput(text_ko="응"),
+        must_target_count=2,
+        mastery={
+            "lexeme:cold": {},
+            "lexeme:fragile": {},
+            "lexeme:stretch": {},
+        },
+    )
+    assert conv_state.summary == "x"
+    assert "cold" not in constraints.allowed_support
+    assert all(mt.surface_forms[0] != "cold" for mt in constraints.must_target)
+    fragile_targets = [
+        mt for mt in constraints.must_target if mt.surface_forms == ("fragile",)
+    ]
+    if fragile_targets:
+        assert fragile_targets[0].scaffolding_required is True
+
+
+def test_new_word_pipeline_graduates_and_shows_in_wrap() -> None:
+    snapshot = DeckSnapshot(
+        deck_ids=(1,),
+        today=100,
+        items=(),
+    )
+    planner = ConversationPlanner(
+        snapshot,
+        settings=ConversationSettings(
+            allow_new_words=True, max_new_words_per_session=3
+        ),
+    )
+    state = planner.initial_state(summary="x")
+    state.new_word_states["신발"] = NewWordState(
+        lexeme="신발",
+        gloss="shoes",
+        introduced_turn=0,
+        current_stage=3,
+        exposure_count=3,
+        successful_uses=0,
+    )
+    _, constraints, _ = planner.plan_turn(
+        state,
+        UserInput(text_ko="응"),
+        must_target_count=1,
+        mastery={},
+    )
+    assert any(mt.type == "new_word" for mt in constraints.must_target)
+    planner.observe_turn(
+        state,
+        constraints=constraints,
+        user_input=UserInput(text_ko="신발 좋아요."),
+        assistant_reply_ko="신발 있어요.",
+        follow_up_question_ko="신발 있어요?",
+    )
+    assert state.new_word_states["신발"].current_stage == 4
+    wrap = compute_session_wrap(
+        snapshot=snapshot, mastery={}, new_word_states=state.new_word_states
+    )
+    suggested = wrap.get("suggested_cards")
+    suggested_cards = suggested if isinstance(suggested, list) else []
+    assert any(
+        isinstance(c, dict)
+        and c.get("front") == "신발"
+        and "conv_new_word" in (c.get("tags") or [])
+        for c in suggested_cards
+    )

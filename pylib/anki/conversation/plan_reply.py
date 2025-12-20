@@ -40,6 +40,9 @@ class PlanReplyRequest:
                         "type": item.type,
                         "surface_forms": list(item.surface_forms),
                         "priority": item.priority,
+                        "scaffolding_required": item.scaffolding_required,
+                        "exposure_stage": item.exposure_stage,
+                        "gloss": item.gloss,
                     }
                     for item in self.language_constraints.must_target
                 ],

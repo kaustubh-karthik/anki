@@ -17,13 +17,19 @@ from .events import (
     record_turn_event,
 )
 from .gateway import ConversationGateway, ConversationProvider
-from .planner import ConversationPlanner, PlannerState
+from .planner import (
+    BASE_ALLOWED_SUPPORT,
+    ConversationPlanner,
+    NewWordState,
+    PlannerState,
+)
 from .prompts import SYSTEM_ROLE
 from .redaction import redact_text
 from .settings import ConversationSettings
 from .snapshot import DeckSnapshot, build_deck_snapshot
 from .telemetry import ConversationTelemetryStore, MasteryCache
 from .types import ConversationRequest, ConversationResponse, UserInput
+from .validation import tokenize_for_validation
 from .wrap import compute_session_wrap
 
 
@@ -66,7 +72,7 @@ class ConversationSession:
             gloss_field_names=settings.gloss_field_names,
             max_items=settings.snapshot_max_items,
         )
-        planner = ConversationPlanner(snapshot)
+        planner = ConversationPlanner(snapshot, settings=settings)
         telemetry = ConversationTelemetryStore(col)
         session_id = telemetry.start_session(list(snapshot.deck_ids))
 
@@ -108,6 +114,9 @@ class ConversationSession:
         )
         response = self.gateway.run_turn(request=request)
 
+        if self.settings.allow_new_words:
+            self._observe_new_words(response=response)
+
         bump_user_used_lexemes(
             telemetry=self.telemetry,
             mastery_cache=self.mastery_cache,
@@ -145,6 +154,38 @@ class ConversationSession:
 
         return TurnResult(user_input=user_input, response=response)
 
+    def _observe_new_words(self, *, response: ConversationResponse) -> None:
+        if len(self.state.new_word_states) >= self.settings.max_new_words_per_session:
+            return
+        known = self.lexeme_set
+        glosses = dict(response.word_glosses)
+        tokens = set(
+            tokenize_for_validation(response.assistant_reply_ko)
+            + tokenize_for_validation(response.follow_up_question_ko)
+        )
+        for token in sorted(tokens):
+            if token in known:
+                continue
+            if token in self.state.new_word_states:
+                continue
+            if token in BASE_ALLOWED_SUPPORT:
+                continue
+            gloss = glosses.get(token)
+            if not isinstance(gloss, str) or not gloss.strip():
+                continue
+            self.state.new_word_states[token] = NewWordState(
+                lexeme=token,
+                gloss=gloss.strip(),
+                introduced_turn=self.state.turn_index,
+                current_stage=1,
+                exposure_count=1,
+            )
+            if (
+                len(self.state.new_word_states)
+                >= self.settings.max_new_words_per_session
+            ):
+                break
+
     def log_event(
         self, payload: dict[str, Any], *, turn_index: int | None = None
     ) -> None:
@@ -157,7 +198,11 @@ class ConversationSession:
         )
 
     def wrap(self) -> dict[str, Any]:
-        return compute_session_wrap(snapshot=self.snapshot, mastery=self.mastery_cache)
+        return compute_session_wrap(
+            snapshot=self.snapshot,
+            mastery=self.mastery_cache,
+            new_word_states=self.state.new_word_states,
+        )
 
     def end(self, *, summary: dict[str, Any] | None = None) -> dict[str, Any]:
         wrap = self.wrap()

@@ -5,8 +5,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .bands import (
+    FSRS5_DEFAULT_DECAY,
+    RetrievabilityBand,
+    classify_item,
+    compute_retrievability,
+)
 from .collocations import select_collocation_targets
 from .grammar import select_grammar_patterns
+from .settings import ConversationSettings
 from .snapshot import DeckSnapshot
 from .types import (
     ConversationState,
@@ -82,6 +89,16 @@ BASE_ALLOWED_SUPPORT: tuple[str, ...] = (
 
 
 @dataclass
+class NewWordState:
+    lexeme: str
+    gloss: str
+    introduced_turn: int
+    current_stage: int  # 1=comprehension, 2=highlighted, 3=scaffolded, 4=graduated
+    exposure_count: int = 0
+    successful_uses: int = 0
+
+
+@dataclass
 class PlannerState:
     conversation_summary: str
     last_assistant_turn_ko: str = ""
@@ -89,11 +106,16 @@ class PlannerState:
     turn_index: int = 0
     scheduled_reuse: dict[str, int] = field(default_factory=dict)
     last_must_target_ids: tuple[str, ...] = ()
+    new_word_states: dict[str, NewWordState] = field(default_factory=dict)
+    last_debug_vocab: dict[str, dict[str, object]] = field(default_factory=dict)
 
 
 class ConversationPlanner:
-    def __init__(self, snapshot: DeckSnapshot) -> None:
+    def __init__(
+        self, snapshot: DeckSnapshot, *, settings: ConversationSettings | None = None
+    ) -> None:
         self._snapshot = snapshot
+        self._settings = settings or ConversationSettings()
 
     def initial_state(
         self, *, summary: str, topic_id: str | None = None
@@ -114,7 +136,43 @@ class ConversationPlanner:
     ) -> tuple[ConversationState, LanguageConstraints, GenerationInstructions]:
         state.turn_index += 1
 
-        candidates = list(self._snapshot.items)
+        thresholds = (
+            self._settings.band_cold_threshold,
+            self._settings.band_fragile_threshold,
+            self._settings.band_stretch_threshold,
+        )
+        item_by_id: dict[str, object] = {
+            str(i.item_id): i for i in self._snapshot.items
+        }
+        band_by_id: dict[str, RetrievabilityBand] = {}
+        r_by_id: dict[str, float | None] = {}
+        for item_id, item in item_by_id.items():
+            m = mastery.get(item_id, {}) if mastery else {}
+            stability = getattr(item, "stability", None)
+            last_review_date = getattr(item, "last_review_date", None)
+            today = self._snapshot.today
+            decay = getattr(item, "decay", None) or FSRS5_DEFAULT_DECAY
+            if (
+                isinstance(stability, (int, float))
+                and stability > 0
+                and isinstance(last_review_date, int)
+                and isinstance(today, int)
+            ):
+                elapsed = max(0.0, float(today - last_review_date))
+                r = compute_retrievability(float(stability), elapsed, float(decay))
+                band = classify_item(r, m, thresholds=thresholds)
+                r_by_id[item_id] = r
+            else:
+                band = RetrievabilityBand.STRETCH
+                r_by_id[item_id] = None
+            band_by_id[item_id] = band
+
+        candidates = [
+            i
+            for i in self._snapshot.items
+            if band_by_id.get(str(i.item_id), RetrievabilityBand.STRETCH)
+            != RetrievabilityBand.COLD
+        ]
         candidates.sort(
             key=lambda i: (
                 -_candidate_score(
@@ -125,7 +183,44 @@ class ConversationPlanner:
                 i.lexeme,
             )
         )
-        lexemes = [item.lexeme for item in candidates]
+        items_by_band: dict[RetrievabilityBand, list[object]] = {
+            RetrievabilityBand.FRAGILE: [],
+            RetrievabilityBand.STRETCH: [],
+            RetrievabilityBand.SUPPORT: [],
+        }
+        for item in candidates:
+            b = band_by_id.get(
+                str(getattr(item, "item_id")), RetrievabilityBand.STRETCH
+            )
+            if b in items_by_band:
+                items_by_band[b].append(item)
+        stretch_lexemes = [
+            getattr(i, "lexeme") for i in items_by_band[RetrievabilityBand.STRETCH]
+        ]
+        support_lexemes = [
+            getattr(i, "lexeme") for i in items_by_band[RetrievabilityBand.SUPPORT]
+        ]
+        fragile_lexemes = [
+            getattr(i, "lexeme") for i in items_by_band[RetrievabilityBand.FRAGILE]
+        ]
+
+        debug_vocab: dict[str, dict[str, object]] = {}
+        for item_id, item in item_by_id.items():
+            band = band_by_id.get(item_id, RetrievabilityBand.STRETCH)
+            if band == RetrievabilityBand.COLD:
+                continue
+            lexeme = getattr(item, "lexeme", "")
+            if not isinstance(lexeme, str) or not lexeme:
+                continue
+            debug_vocab[lexeme] = {"band": band.value, "r": r_by_id.get(item_id)}
+        for nw in state.new_word_states.values():
+            if 1 <= int(nw.current_stage) <= 4:
+                debug_vocab[nw.lexeme] = {
+                    "band": RetrievabilityBand.NEW.value,
+                    "r": None,
+                    "stage": int(nw.current_stage),
+                }
+        state.last_debug_vocab = debug_vocab
 
         # 1) due items first (micro-spacing)
         due_ids = [
@@ -137,26 +232,49 @@ class ConversationPlanner:
 
         must_targets: list[MustTarget] = []
         used_lexemes: set[str] = set()
+        fragile_count = 0
+
+        active_new_words: list[NewWordState] = []
+        if self._settings.allow_new_words:
+            active_new_words = [
+                nw
+                for nw in state.new_word_states.values()
+                if 1 <= int(nw.current_stage) <= 3 and nw.lexeme not in used_lexemes
+            ]
+            active_new_words.sort(
+                key=lambda s: (s.current_stage, s.introduced_turn, s.lexeme)
+            )
+        reserved_new_word_slots = 1 if active_new_words else 0
+        target_budget = max(0, must_target_count - reserved_new_word_slots)
 
         for item_id in due_ids:
+            if band_by_id.get(item_id) == RetrievabilityBand.COLD:
+                continue
             lexeme = item_id.removeprefix("lexeme:")
             if lexeme in used_lexemes:
                 continue
+            scaffolding_required = band_by_id.get(item_id) in (
+                RetrievabilityBand.FRAGILE,
+                RetrievabilityBand.NEW,
+            )
+            if band_by_id.get(item_id) == RetrievabilityBand.FRAGILE:
+                fragile_count += 1
             must_targets.append(
                 MustTarget(
                     id=ItemId(item_id),
                     type="vocab",
                     surface_forms=(lexeme,),
                     priority=1.0,
+                    scaffolding_required=scaffolding_required,
                 )
             )
             used_lexemes.add(lexeme)
-            if len(must_targets) >= must_target_count:
+            if len(must_targets) >= target_budget:
                 break
 
-        # 2) fill remaining slots by priority
-        for lexeme in lexemes:
-            if len(must_targets) >= must_target_count:
+        # 2) primary targets from STRETCH
+        for lexeme in stretch_lexemes:
+            if len(must_targets) >= target_budget:
                 break
             if lexeme in used_lexemes:
                 continue
@@ -170,6 +288,61 @@ class ConversationPlanner:
             )
             used_lexemes.add(lexeme)
 
+        # 3) at most 1 FRAGILE per turn (scaffolded)
+        if len(must_targets) < target_budget and fragile_count < 1 and fragile_lexemes:
+            for lexeme in fragile_lexemes:
+                if len(must_targets) >= target_budget:
+                    break
+                if lexeme in used_lexemes:
+                    continue
+                must_targets.append(
+                    MustTarget(
+                        id=ItemId(f"lexeme:{lexeme}"),
+                        type="vocab",
+                        surface_forms=(lexeme,),
+                        priority=1.0,
+                        scaffolding_required=True,
+                    )
+                )
+                used_lexemes.add(lexeme)
+                fragile_count += 1
+                break
+
+        # 4) fill any remaining slots from SUPPORT
+        for lexeme in support_lexemes:
+            if len(must_targets) >= target_budget:
+                break
+            if lexeme in used_lexemes:
+                continue
+            must_targets.append(
+                MustTarget(
+                    id=ItemId(f"lexeme:{lexeme}"),
+                    type="vocab",
+                    surface_forms=(lexeme,),
+                    priority=1.0,
+                )
+            )
+            used_lexemes.add(lexeme)
+
+        # 5) optionally add one new-word pipeline target
+        if active_new_words and len(must_targets) < must_target_count:
+            nw = next(
+                (w for w in active_new_words if w.lexeme not in used_lexemes), None
+            )
+            if nw is not None:
+                must_targets.append(
+                    MustTarget(
+                        id=ItemId(f"lexeme:{nw.lexeme}"),
+                        type="new_word",
+                        surface_forms=(nw.lexeme,),
+                        priority=0.9,
+                        scaffolding_required=True,
+                        exposure_stage=int(nw.current_stage),
+                        gloss=nw.gloss,
+                    )
+                )
+                used_lexemes.add(nw.lexeme)
+
         # 3) optionally add collocation targets if there is room
         lexical_targets = tuple(
             t.surface_forms[0] for t in must_targets if t.type == "vocab"
@@ -182,9 +355,13 @@ class ConversationPlanner:
             must_targets.append(colloc)
         # For the AI: only include deck vocabulary (no BASE_ALLOWED_SUPPORT)
         # The system prompt tells the AI it can use basic particles freely
+        allowed_support_seed = tuple(
+            dict.fromkeys(tuple(support_lexemes) + tuple(stretch_lexemes[:20]))
+        )
+        allowed_support_seed = allowed_support_seed[:allowed_support_count]
         allowed_support_for_ai = tuple(
             dict.fromkeys(
-                tuple(lexemes[:allowed_support_count])
+                allowed_support_seed
                 + tuple(sf for t in must_targets for sf in t.surface_forms)
             )
         )
@@ -196,7 +373,8 @@ class ConversationPlanner:
                 must_targets=tuple(sf for t in must_targets for sf in t.surface_forms)
             ),
             forbidden=ForbiddenConstraints(
-                introduce_new_vocab=True, sentence_length_max=20
+                introduce_new_vocab=not self._settings.allow_new_words,
+                sentence_length_max=20,
             ),
             # Note: BASE_ALLOWED_SUPPORT is still used for validation in gateway.py
             # but we don't pass it to the AI - the prompt tells it to use particles freely
@@ -205,7 +383,7 @@ class ConversationPlanner:
         instructions = GenerationInstructions(
             register="해요체",
             safe_mode=True,
-            provide_follow_up_question=True,
+            provide_follow_up_question=False,
             provide_micro_feedback=True,
             provide_suggested_english_intent=True,
             max_corrections=1,
@@ -237,6 +415,7 @@ class ConversationPlanner:
             + tokenize_for_validation(follow_up_question_ko)
         )
         missed: list[str] = []
+        successful_new_words: set[str] = set()
         for target in constraints.must_target:
             item_id = str(target.id)
             if target.type == "collocation":
@@ -256,6 +435,31 @@ class ConversationPlanner:
                     state.turn_index + 1,
                 )
                 missed.append(item_id)
+            elif target.type == "new_word":
+                lexeme = target.surface_forms[0] if target.surface_forms else ""
+                if lexeme:
+                    successful_new_words.add(lexeme)
+
+        # Advance new-word pipeline based on observed usage.
+        for lexeme, nw in list(state.new_word_states.items()):
+            if nw.current_stage >= 4:
+                continue
+            if lexeme in assistant_tokens:
+                # exposure_count is initialized to 1 on the turn the word is first seen;
+                # advance stages only on subsequent exposures.
+                if nw.introduced_turn != state.turn_index:
+                    nw.exposure_count += 1
+                if nw.current_stage == 1 and nw.exposure_count >= 2:
+                    nw.current_stage = 2
+                elif nw.current_stage == 2 and nw.exposure_count >= 3:
+                    nw.current_stage = 3
+            if lexeme in user_tokens and nw.current_stage >= 3:
+                nw.successful_uses += 1
+                if nw.successful_uses >= 1:
+                    nw.current_stage = 4
+            if lexeme in successful_new_words and nw.current_stage >= 3:
+                # assistant used it during stage 3: still requires user success to graduate
+                pass
         return missed
 
 

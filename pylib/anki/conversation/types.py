@@ -14,9 +14,12 @@ ItemId = NewType("ItemId", str)
 @dataclass(frozen=True)
 class MustTarget:
     id: ItemId
-    type: Literal["vocab", "grammar", "collocation", "repair"]
+    type: Literal["vocab", "grammar", "collocation", "repair", "new_word"]
     surface_forms: tuple[str, ...]
     priority: float
+    scaffolding_required: bool = False
+    exposure_stage: int | None = None
+    gloss: str | None = None
 
 
 @dataclass(frozen=True)
@@ -91,6 +94,9 @@ class ConversationRequest:
                         "type": item.type,
                         "surface_forms": list(item.surface_forms),
                         "priority": item.priority,
+                        "scaffolding_required": item.scaffolding_required,
+                        "exposure_stage": item.exposure_stage,
+                        "gloss": item.gloss,
                     }
                     for item in self.language_constraints.must_target
                 ],
@@ -141,7 +147,9 @@ class ConversationResponse:
         if not isinstance(data, dict):
             raise ValueError("response must be a JSON object")
         assistant_reply_ko = _required_str(data, "assistant_reply_ko")
-        follow_up_question_ko = _required_str(data, "follow_up_question_ko")
+        follow_up_question_ko = data.get("follow_up_question_ko", "")
+        if not isinstance(follow_up_question_ko, str):
+            raise ValueError("follow_up_question_ko must be a string")
         micro_feedback = data.get("micro_feedback")
         if micro_feedback is not None:
             if not isinstance(micro_feedback, dict):

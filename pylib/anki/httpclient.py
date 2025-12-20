@@ -40,7 +40,9 @@ class HttpClient(DeprecatedNamesMixin):
 
     def close(self) -> None:
         if self.session:
-            self.session.close()
+            close = getattr(self.session, "close", None)
+            if callable(close):
+                close()
             self.session = None
 
     def __del__(self) -> None:

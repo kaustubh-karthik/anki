@@ -27,6 +27,11 @@ class ConversationSettings:
     gloss_field_index: int | None = 1
     gloss_field_names: tuple[str, ...] = ()
     snapshot_max_items: int = 5000
+    band_cold_threshold: float = 0.4
+    band_fragile_threshold: float = 0.6
+    band_stretch_threshold: float = 0.85
+    allow_new_words: bool = False
+    max_new_words_per_session: int = 3
 
 
 CONFIG_KEY = "elites.conversation.settings"
@@ -49,6 +54,17 @@ def load_conversation_settings(col: Collection) -> ConversationSettings:
     gloss_field_index = raw.get("gloss_field_index", defaults.gloss_field_index)
     gloss_field_names = raw.get("gloss_field_names", list(defaults.gloss_field_names))
     snapshot_max_items = raw.get("snapshot_max_items", defaults.snapshot_max_items)
+    band_cold_threshold = raw.get("band_cold_threshold", defaults.band_cold_threshold)
+    band_fragile_threshold = raw.get(
+        "band_fragile_threshold", defaults.band_fragile_threshold
+    )
+    band_stretch_threshold = raw.get(
+        "band_stretch_threshold", defaults.band_stretch_threshold
+    )
+    allow_new_words = raw.get("allow_new_words", defaults.allow_new_words)
+    max_new_words_per_session = raw.get(
+        "max_new_words_per_session", defaults.max_new_words_per_session
+    )
 
     if not isinstance(provider, str):
         provider = "openai"
@@ -92,6 +108,33 @@ def load_conversation_settings(col: Collection) -> ConversationSettings:
         or snapshot_max_items > 50000
     ):
         snapshot_max_items = 5000
+    if not isinstance(band_cold_threshold, (int, float)):
+        band_cold_threshold = defaults.band_cold_threshold
+    if not isinstance(band_fragile_threshold, (int, float)):
+        band_fragile_threshold = defaults.band_fragile_threshold
+    if not isinstance(band_stretch_threshold, (int, float)):
+        band_stretch_threshold = defaults.band_stretch_threshold
+    band_cold_threshold = float(band_cold_threshold)
+    band_fragile_threshold = float(band_fragile_threshold)
+    band_stretch_threshold = float(band_stretch_threshold)
+    if not (0.0 < band_cold_threshold < 1.0):
+        band_cold_threshold = defaults.band_cold_threshold
+    if not (0.0 < band_fragile_threshold < 1.0):
+        band_fragile_threshold = defaults.band_fragile_threshold
+    if not (0.0 < band_stretch_threshold < 1.0):
+        band_stretch_threshold = defaults.band_stretch_threshold
+    if not (band_cold_threshold < band_fragile_threshold < band_stretch_threshold):
+        band_cold_threshold = defaults.band_cold_threshold
+        band_fragile_threshold = defaults.band_fragile_threshold
+        band_stretch_threshold = defaults.band_stretch_threshold
+    if not isinstance(allow_new_words, bool):
+        allow_new_words = defaults.allow_new_words
+    if (
+        not isinstance(max_new_words_per_session, int)
+        or max_new_words_per_session < 0
+        or max_new_words_per_session > 50
+    ):
+        max_new_words_per_session = defaults.max_new_words_per_session
 
     return ConversationSettings(
         provider=provider,
@@ -104,6 +147,11 @@ def load_conversation_settings(col: Collection) -> ConversationSettings:
         gloss_field_index=gloss_field_index,
         gloss_field_names=tuple(gloss_field_names),
         snapshot_max_items=snapshot_max_items,
+        band_cold_threshold=band_cold_threshold,
+        band_fragile_threshold=band_fragile_threshold,
+        band_stretch_threshold=band_stretch_threshold,
+        allow_new_words=allow_new_words,
+        max_new_words_per_session=max_new_words_per_session,
     )
 
 
@@ -121,6 +169,11 @@ def save_conversation_settings(col: Collection, settings: ConversationSettings) 
             "gloss_field_index": settings.gloss_field_index,
             "gloss_field_names": list(settings.gloss_field_names),
             "snapshot_max_items": settings.snapshot_max_items,
+            "band_cold_threshold": settings.band_cold_threshold,
+            "band_fragile_threshold": settings.band_fragile_threshold,
+            "band_stretch_threshold": settings.band_stretch_threshold,
+            "allow_new_words": settings.allow_new_words,
+            "max_new_words_per_session": settings.max_new_words_per_session,
         },
         undoable=False,
     )

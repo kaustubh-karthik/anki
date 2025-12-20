@@ -45,9 +45,10 @@ class LocalConversationProvider(ConversationProvider):
         if not reply_tokens:
             reply_tokens = ["네"]
 
-        assistant_reply_ko = " ".join(reply_tokens) + "."
-
-        follow_up_question_ko = pick_allowed(("뭐예요", "뭐"), "뭐예요") + "?"
+        statement = " ".join(reply_tokens) + "."
+        question = pick_allowed(("뭐예요", "뭐"), "뭐예요") + "?"
+        assistant_reply_ko = f"{statement} {question}"
+        follow_up_question_ko = ""
 
         used_tokens = set(
             tokenize_for_validation(assistant_reply_ko)

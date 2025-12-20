@@ -185,7 +185,9 @@ class OpenAIResponsesJsonClient:
                     resp = client.post(
                         api_url, data=orjson.dumps(p), headers=headers, stream=False
                     )
-                    if resp.status_code >= 400 and _should_retry_status(resp.status_code):
+                    if resp.status_code >= 400 and _should_retry_status(
+                        resp.status_code
+                    ):
                         if attempt < self.max_retries:
                             _sleep_backoff(attempt)
                             continue
@@ -199,9 +201,7 @@ class OpenAIResponsesJsonClient:
                             "OpenAI returned non-JSON response"
                         ) from e
                     if not isinstance(data, dict):
-                        raise LLMResponseError(
-                            "OpenAI returned unexpected JSON type"
-                        )
+                        raise LLMResponseError("OpenAI returned unexpected JSON type")
                     return data
                 except requests.exceptions.Timeout:
                     if attempt < self.max_retries:

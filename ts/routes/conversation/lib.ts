@@ -13,6 +13,12 @@ export type ConversationTurnResponse =
             unexpected_tokens?: string[];
             word_glosses?: Record<string, string>;
         };
+        debug_vocab?:
+            | Record<
+                string,
+                { band?: string; r?: number | null; stage?: number | null }
+            >
+            | null;
     }
     | { ok: false; error: string };
 

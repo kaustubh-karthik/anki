@@ -38,6 +38,7 @@ from anki.conversation import (
 )
 from anki.conversation.events import apply_missed_targets, record_event_from_payload
 from anki.conversation.keys import resolve_openai_api_key
+from anki.conversation.planner import BASE_ALLOWED_SUPPORT, NewWordState
 from anki.conversation.prompts import SYSTEM_ROLE
 from anki.conversation.redaction import redact_text
 from anki.conversation.settings import (
@@ -52,6 +53,7 @@ from anki.conversation.types import (
     GenerationInstructions,
     UserInput,
 )
+from anki.conversation.validation import tokenize_for_validation
 from anki.decks import DeckId
 from aqt.qt import *
 from aqt.utils import disable_help_button, restoreGeom, saveGeom
@@ -201,7 +203,7 @@ class ConversationDialog(QDialog):
             gloss_field_names=settings.gloss_field_names,
             max_items=settings.snapshot_max_items,
         )
-        planner = ConversationPlanner(snapshot)
+        planner = ConversationPlanner(snapshot, settings=settings)
         telemetry = ConversationTelemetryStore(self.mw.col)
         session_id = telemetry.start_session(list(snapshot.deck_ids))
         mastery_cache = telemetry.load_mastery_cache(
@@ -281,7 +283,16 @@ class ConversationDialog(QDialog):
                     if self._session is None or self._session.gateway is None:
                         return {"ok": False, "error": "session not started"}
                     response = self._session.gateway.run_turn(request=turn_request)
-                    return {"ok": True, "response": response.to_json_dict()}
+                    debug_vocab: dict[str, Any] | None = None
+                    if isinstance(turn_context, dict):
+                        dv = turn_context.get("debug_vocab")
+                        if isinstance(dv, dict):
+                            debug_vocab = dv
+                    return {
+                        "ok": True,
+                        "response": response.to_json_dict(),
+                        "debug_vocab": debug_vocab,
+                    }
                 if kind == "translate":
                     return self._translate(payload)
                 if kind == "plan_reply":
@@ -344,11 +355,12 @@ class ConversationDialog(QDialog):
         conv_state, constraints, instructions = self._session.planner.plan_turn(
             self._session.state, user_input, mastery=self._session.mastery_cache
         )
+        debug_vocab = dict(self._session.state.last_debug_vocab)
         instructions = GenerationInstructions(
             conversation_goal=instructions.conversation_goal,
             tone=instructions.tone,
             register=instructions.register,
-            provide_follow_up_question=True,
+            provide_follow_up_question=False,
             provide_micro_feedback=True,
             provide_suggested_english_intent=True,
             max_corrections=1,
@@ -361,7 +373,11 @@ class ConversationDialog(QDialog):
             language_constraints=constraints,
             generation_instructions=instructions,
         )
-        context = {"constraints": constraints, "user_input": user_input}
+        context = {
+            "constraints": constraints,
+            "user_input": user_input,
+            "debug_vocab": debug_vocab,
+        }
         return {"ok": True, "request": request, "context": context}
 
     def _finalize_turn_for_async(
@@ -382,6 +398,8 @@ class ConversationDialog(QDialog):
         if not isinstance(user_input, UserInput):
             return
         response = ConversationResponse.from_json_dict(response_json)
+        if self._session.settings.allow_new_words:
+            self._observe_new_words_from_response(response)
         self._session.state.last_assistant_turn_ko = response.assistant_reply_ko
         missed = self._session.planner.observe_turn(
             self._session.state,
@@ -583,6 +601,11 @@ class ConversationDialog(QDialog):
             gloss_field_index=gloss_field_index,
             gloss_field_names=tuple(gloss_field_names),
             snapshot_max_items=snapshot_max_items,
+            band_cold_threshold=cur.band_cold_threshold,
+            band_fragile_threshold=cur.band_fragile_threshold,
+            band_stretch_threshold=cur.band_stretch_threshold,
+            allow_new_words=cur.allow_new_words,
+            max_new_words_per_session=cur.max_new_words_per_session,
         )
         save_conversation_settings(self.mw.col, new_settings)
         return {"ok": True}
@@ -603,11 +626,12 @@ class ConversationDialog(QDialog):
         conv_state, constraints, instructions = self._session.planner.plan_turn(
             self._session.state, user_input, mastery=self._session.mastery_cache
         )
+        debug_vocab = dict(self._session.state.last_debug_vocab)
         instructions = GenerationInstructions(
             conversation_goal=instructions.conversation_goal,
             tone=instructions.tone,
             register=instructions.register,
-            provide_follow_up_question=True,
+            provide_follow_up_question=False,
             provide_micro_feedback=True,
             provide_suggested_english_intent=True,
             max_corrections=1,
@@ -621,6 +645,8 @@ class ConversationDialog(QDialog):
             generation_instructions=instructions,
         )
         response = self._session.gateway.run_turn(request=request)
+        if self._session.settings.allow_new_words:
+            self._observe_new_words_from_response(response)
         self._session.state.last_assistant_turn_ko = response.assistant_reply_ko
         missed = self._session.planner.observe_turn(
             self._session.state,
@@ -634,7 +660,48 @@ class ConversationDialog(QDialog):
             mastery_cache=self._session.mastery_cache,
             missed_item_ids=missed,
         )
-        return {"ok": True, "response": response.to_json_dict()}
+        return {
+            "ok": True,
+            "response": response.to_json_dict(),
+            "debug_vocab": debug_vocab,
+        }
+
+    def _observe_new_words_from_response(self, response: ConversationResponse) -> None:
+        if self._session is None:
+            return
+        if (
+            len(self._session.state.new_word_states)
+            >= self._session.settings.max_new_words_per_session
+        ):
+            return
+        known = self._session.lexeme_set
+        glosses = dict(response.word_glosses)
+        tokens = set(
+            tokenize_for_validation(response.assistant_reply_ko)
+            + tokenize_for_validation(response.follow_up_question_ko)
+        )
+        for token in sorted(tokens):
+            if token in known:
+                continue
+            if token in self._session.state.new_word_states:
+                continue
+            if token in BASE_ALLOWED_SUPPORT:
+                continue
+            gloss = glosses.get(token)
+            if not isinstance(gloss, str) or not gloss.strip():
+                continue
+            self._session.state.new_word_states[token] = NewWordState(
+                lexeme=token,
+                gloss=gloss.strip(),
+                introduced_turn=self._session.state.turn_index,
+                current_stage=1,
+                exposure_count=1,
+            )
+            if (
+                len(self._session.state.new_word_states)
+                >= self._session.settings.max_new_words_per_session
+            ):
+                break
 
     def _log_event(self, payload: dict[str, Any]) -> dict[str, Any]:
         if self._session is None:
@@ -663,7 +730,9 @@ class ConversationDialog(QDialog):
         if self._session is None:
             return {"ok": False, "error": "session not started"}
         wrap = compute_session_wrap(
-            snapshot=self._session.snapshot, mastery=self._session.mastery_cache
+            snapshot=self._session.snapshot,
+            mastery=self._session.mastery_cache,
+            new_word_states=self._session.state.new_word_states,
         )
         return {"ok": True, "wrap": wrap}
 
@@ -671,7 +740,9 @@ class ConversationDialog(QDialog):
         if self._session is None:
             return {"ok": False, "error": "session not started"}
         wrap = compute_session_wrap(
-            snapshot=self._session.snapshot, mastery=self._session.mastery_cache
+            snapshot=self._session.snapshot,
+            mastery=self._session.mastery_cache,
+            new_word_states=self._session.state.new_word_states,
         )
         summary = {"turns": self._session.state.turn_index, "wrap": wrap}
         self._session.telemetry.end_session(self._session.session_id, summary=summary)
@@ -704,7 +775,9 @@ class ConversationDialog(QDialog):
         if not did:
             return {"ok": False, "error": "deck not found"}
         wrap = compute_session_wrap(
-            snapshot=self._session.snapshot, mastery=self._session.mastery_cache
+            snapshot=self._session.snapshot,
+            mastery=self._session.mastery_cache,
+            new_word_states=self._session.state.new_word_states,
         )
         suggestions = suggestions_from_wrap(wrap, deck_id=int(did))
         created = apply_suggested_cards(self.mw.col, suggestions)

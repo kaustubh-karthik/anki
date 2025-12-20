@@ -107,6 +107,17 @@ def record_event_from_payload(
             )
         return
 
+    if etype == "word_success":
+        if isinstance(token, str) and token:
+            telemetry.bump_item_cached(
+                mastery_cache,
+                item_id=f"lexeme:{token}",
+                kind="lexeme",
+                value=token,
+                deltas={"conv_success_count": 1},
+            )
+        return
+
     if etype == "repair_move":
         move = payload.get("move")
         if isinstance(move, str) and move:

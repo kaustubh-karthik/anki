@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .planner import NewWordState
 from .snapshot import DeckSnapshot
 
 
@@ -19,6 +20,7 @@ def compute_session_wrap(
     *,
     snapshot: DeckSnapshot,
     mastery: dict[str, dict[str, int]],
+    new_word_states: dict[str, NewWordState] | None = None,
     strengths_n: int = 3,
     reinforce_n: int = 2,
     suggest_n: int = 1,
@@ -70,6 +72,17 @@ def compute_session_wrap(
                 "tags": ["conv_suggested"],
             }
         )
+
+    if new_word_states:
+        for lexeme, state in sorted(new_word_states.items()):
+            if state.current_stage >= 4:
+                suggested_cards.append(
+                    {
+                        "front": lexeme,
+                        "back": state.gloss,
+                        "tags": ["conv_new_word"],
+                    }
+                )
 
     return {
         "strengths": strengths,

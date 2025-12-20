@@ -28,9 +28,9 @@ def _required_gloss_tokens(
     for mt in request.language_constraints.must_target:
         required_stems.update(mt.surface_forms)
 
-    tokens = tokenize_for_validation(response.assistant_reply_ko) + tokenize_for_validation(
-        response.follow_up_question_ko
-    )
+    tokens = tokenize_for_validation(
+        response.assistant_reply_ko
+    ) + tokenize_for_validation(response.follow_up_question_ko)
 
     required_tokens: set[str] = set()
     for token in tokens:

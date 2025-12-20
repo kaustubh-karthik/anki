@@ -25,6 +25,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     };
     let turns: Turn[] = [];
     let resolvedGlossesByTurn: Record<number, Record<string, string>> = {};
+    let debugVocabByTurn: Record<
+        number,
+        Record<string, { band?: string; r?: number | null; stage?: number | null }>
+    > = {};
     let showHintByTurn: Record<number, boolean> = {};
     let showExplainByTurn: Record<number, boolean> = {};
     let showTranslateByTurn: Record<number, boolean> = {};
@@ -45,17 +49,16 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let telemetryJson = "";
     let inFlight = false;
     let lastJobDebug: string | null = null;
-    let tooltip:
-        | {
-              token: string;
-              gloss: string;
-              x: number;
-              y: number;
-              anchorX: number;
-              arrowX: number;
-              placement: "top" | "bottom";
-          }
-        | null = null;
+    let tooltip: {
+        token: string;
+        gloss: string;
+        debug: string | null;
+        x: number;
+        y: number;
+        anchorX: number;
+        arrowX: number;
+        placement: "top" | "bottom";
+    } | null = null;
     let tooltipEl: HTMLDivElement | null = null;
     let activeTooltipToken: string | null = null;
     let hoveredWordsThisTurn: Set<string> = new Set();
@@ -271,7 +274,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
         const tokens = [
             ...tokenizeForUi(turn.assistant.assistant_reply_ko),
-            ...tokenizeForUi(turn.assistant.follow_up_question_ko),
         ]
             .filter((t) => t.kind === "word")
             .map((t) => t.text);
@@ -393,6 +395,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 }
                 turns = [];
                 resolvedGlossesByTurn = {};
+                debugVocabByTurn = {};
                 showHintByTurn = {};
                 showExplainByTurn = {};
                 showTranslateByTurn = {};
@@ -452,6 +455,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     error = (result as any)?.error ?? "Turn failed.";
                     return;
                 }
+                const newIndex = turns.length;
+                debugVocabByTurn = {
+                    ...debugVocabByTurn,
+                    [newIndex]: (result as any).debug_vocab ?? {},
+                };
                 turns = [
                     ...turns,
                     {
@@ -466,13 +474,67 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         })();
     }
 
+    function resolveDebugInfo(
+        token: string,
+        debug:
+            | Record<
+                  string,
+                  { band?: string; r?: number | null; stage?: number | null }
+              >
+            | undefined,
+    ): { band?: string; r?: number | null; stage?: number | null } | null {
+        if (!debug) {
+            return null;
+        }
+        if (debug[token]) {
+            return debug[token];
+        }
+        const stem = stemByStrippingJosa(token);
+        if (stem && debug[stem]) {
+            return debug[stem];
+        }
+        return null;
+    }
+
+    function debugLineForTooltip(
+        token: string,
+        debug:
+            | Record<
+                  string,
+                  { band?: string; r?: number | null; stage?: number | null }
+              >
+            | undefined,
+    ): string | null {
+        const info = resolveDebugInfo(token, debug);
+        if (!info) {
+            return null;
+        }
+        const band = info.band ?? "?";
+        const r =
+            typeof info.r === "number" && Number.isFinite(info.r)
+                ? info.r.toFixed(3)
+                : "?";
+        const stage =
+            typeof info.stage === "number" && Number.isFinite(info.stage)
+                ? String(info.stage)
+                : null;
+        return stage ? `band=${band}  R=${r}  stage=${stage}` : `band=${band}  R=${r}`;
+    }
+
     function showWordTooltip(
         word: string,
         glosses: Record<string, string> | undefined,
+        debug:
+            | Record<
+                  string,
+                  { band?: string; r?: number | null; stage?: number | null }
+              >
+            | undefined,
         el: HTMLElement,
     ): void {
         activeTooltipToken = word;
         const gloss = glossFromMap(word, glosses);
+        const dbg = debugLineForTooltip(word, debug);
         if (gloss) {
             const rect = el.getBoundingClientRect();
             const anchorX = rect.left + rect.width / 2;
@@ -483,6 +545,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             tooltip = {
                 token: word,
                 gloss,
+                debug: dbg,
                 x: anchorX,
                 y,
                 anchorX,
@@ -520,6 +583,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             tooltip = {
                 token: word,
                 gloss: "…",
+                debug: dbg,
                 x: anchorX,
                 y,
                 anchorX,
@@ -571,6 +635,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             lastWrap = resp.wrap ?? null;
             started = false;
             resolvedGlossesByTurn = {};
+            debugVocabByTurn = {};
             tooltip = null;
         });
     }
@@ -816,7 +881,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     {/if}
 
     <div class="chat">
-    {#each turns as turn, idx}
+        {#each turns as turn, idx}
             <div class="msg user">{turn.user_text_ko}</div>
 
             <div class="msg assistant">
@@ -833,29 +898,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                             tok.text,
                                             resolvedGlossesByTurn[idx] ??
                                                 turn.assistant.word_glosses,
-                                            e.currentTarget as HTMLElement,
-                                        )}
-                                    on:mouseleave={hideTooltip}
-                                >
-                                    {tok.text}
-                                </button>
-                            {:else}
-                                <span>{tok.text}</span>
-                            {/if}
-                        {/each}
-                    </div>
-                    <div class="assistantLine">
-                        {#each tokenizeForUi(turn.assistant.follow_up_question_ko) as tok}
-                            {#if tok.kind === "word"}
-                                <button
-                                    type="button"
-                                    class="tok"
-                                    aria-label={`token ${tok.text}`}
-                                    on:mouseenter={(e) =>
-                                        showWordTooltip(
-                                            tok.text,
-                                            resolvedGlossesByTurn[idx] ??
-                                                turn.assistant.word_glosses,
+                                            debugVocabByTurn[idx],
                                             e.currentTarget as HTMLElement,
                                         )}
                                     on:mouseleave={hideTooltip}
@@ -1055,7 +1098,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             class="wordTooltip {tooltip.placement}"
             style="left: {tooltip.x}px; top: {tooltip.y}px; --arrow-left: {tooltip.arrowX}px;"
         >
-            <span class="tooltipGloss">{tooltip.gloss}</span>
+            <div class="tooltipGloss">{tooltip.gloss}</div>
+            {#if tooltip.debug}
+                <div class="tooltipDebug">{tooltip.debug}</div>
+            {/if}
         </div>
     {/if}
 </div>
@@ -1127,6 +1173,14 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         font-size: 12px;
         opacity: 1;
         display: block;
+    }
+    .tooltipDebug {
+        margin-top: 2px;
+        font-size: 0.78em;
+        opacity: 0.75;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+            "Liberation Mono", "Courier New", monospace;
+        white-space: nowrap;
     }
     .wordTooltip.top {
         transform: translate(-50%, -100%);
