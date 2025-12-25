@@ -152,16 +152,24 @@ class ConversationPlanner:
             m = mastery.get(item_id, {}) if mastery else {}
             stability = getattr(item, "stability", None)
             last_review_date = getattr(item, "last_review_date", None)
-            reps = getattr(item, "reps", None)
             today = self._snapshot.today
             decay = getattr(item, "decay", None) or FSRS5_DEFAULT_DECAY
+<<<<<<< ours
+            has_mastery = any(
+                isinstance(v, (int, float)) and v > 0 for v in m.values()
+            )
             is_unseen = (
-                reps in (None, 0) or not isinstance(last_review_date, int)
+                reps in (None, 0)
+                or not isinstance(last_review_date, int)
+                or not has_mastery
             )
             if self._settings.treat_unseen_deck_words_as_support and is_unseen:
                 band = RetrievabilityBand.SUPPORT
                 r_by_id[item_id] = None
             elif (
+=======
+            if (
+>>>>>>> theirs
                 isinstance(stability, (int, float))
                 and stability > 0
                 and isinstance(last_review_date, int)
@@ -172,7 +180,11 @@ class ConversationPlanner:
                 band = classify_item(r, m, thresholds=thresholds)
                 r_by_id[item_id] = r
             else:
-                band = RetrievabilityBand.STRETCH
+                band = (
+                    RetrievabilityBand.SUPPORT
+                    if self._settings.treat_unseen_deck_words_as_support
+                    else RetrievabilityBand.STRETCH
+                )
                 r_by_id[item_id] = None
             band_by_id[item_id] = band
 
